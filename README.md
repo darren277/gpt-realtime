@@ -1,5 +1,19 @@
 # gpt-realtime
 
+## About
+
+This repository serves the purpose of providing a space to experiment with the OpenAI Realtime API.
+
+While there are both a WebRTC and a WebSockets version, I will be primarily exploring the WebSockets version.
+
+The plan is to include both some Python and JavaScript code showcasing the core functionality of the API, especially with regards to voice interaction.
+
+### Some resources:
+
+https://platform.openai.com/docs/guides/realtime-model-capabilities
+https://platform.openai.com/docs/guides/realtime-websocket
+https://platform.openai.com/docs/api-reference/realtime
+
 ## Python version
 
 An implementation of the GPT Real Time API using WebSockets. It is built in Flask and has a very simple single page for the front end that uses vanilla HTML and JavaScript.
