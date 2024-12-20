@@ -21,3 +21,7 @@ An implementation of the GPT Real Time API using WebSockets. It is built in Flas
 So far, it successfully interacts with the Real Time API (using the `gpt-4o-realtime-preview-2024-12-17` beta model). It handles voice that is recorded via the browser and converted using `ffmpeg` (server side as a subprocess).
 
 It still needs some tweaking to get the live prompts working right as the last testing resulted in it simply repeating back what I had said to it.
+
+## JavaScript version
+
+There is now a Node/Express/React version of the same application. It has the same functionality as the Python version currently, only, for whatever reason, the first test case worked flawlessly without having to make any adjustments to the intercepted prompts. Perhaps my first test case for the Python version was just too trivial to expect any results (I simply uttered "Testing speech to text. Testing speech to text." - not much of a prompt, afterall).
