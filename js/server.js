@@ -102,7 +102,7 @@ app.post('/send', async (req, res) => {
   const event = {
     "type": "response.create",
     "response": {
-      "modalities": ["text"],
+      "modalities": ["text", "audio"],
       "instructions": message
     }
   };
