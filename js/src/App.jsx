@@ -6,29 +6,36 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
 
-  // Initialize session
-  const initSession = async () => {
-    const res = await fetch('/init_session', { method: 'POST' });
-    if (res.ok) {
-      const data = await res.json();
-      console.log('Session initialized:', data);
-      setSessionInitialized(true);
-    } else {
-      console.error('Failed to initialize session');
-    }
-  };
+  const wsRef = useRef(null);
 
-  // Start WebSocket Connection
-  const startWebSocket = async () => {
-    const res = await fetch('/start', { method: 'GET' });
-    if (res.ok) {
-      const text = await res.text();
-      console.log('WebSocket started:', text);
-      setWsStarted(true);
-    } else {
-      console.error('Failed to start WebSocket');
-    }
-  };
+  useEffect(() => {
+    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+  }, []);
+
+  useEffect(() => {
+    const ws = new WebSocket('ws://127.0.0.1:5660');
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("WebSocket connection established.");
+    };
+    
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+    
+    ws.onclose = () => {
+      console.log("WebSocket connection closed.");
+    };
+
+    ws.onmessage = async (event) => {
+      const data = JSON.parse(event.data);
+
+      console.log("Received event:", JSON.stringify(data, null, 2));
+    };
+
+    return () => ws.close();
+  }, []);
 
   // Set up MediaRecorder once
   useEffect(() => {
