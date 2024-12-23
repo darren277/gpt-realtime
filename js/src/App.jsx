@@ -57,6 +57,30 @@ function App() {
     }
   };
 
+  function initializeSessionAndStart() {
+    // Step 1: Initialize the session
+    fetch('http://127.0.0.1:5660/init_session', {
+      method: 'POST',
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Failed to initialize session.');
+        }
+        return response.json();
+      })
+      .then((data) => {
+        console.log('Session initialized:', data);
+        // Step 2: Start the WebSocket connection
+        return fetch('http://127.0.0.1:5660/start');
+      })
+      .then(() => {
+        console.log('WebSocket connection started.');
+      })
+      .catch((err) => {
+        console.error(err);
+      });
+  }
+
   // Handle data from MediaRecorder
   useEffect(() => {
     if (!mediaRecorder) return;
@@ -137,8 +161,13 @@ function App() {
     <div>
       <h1>GPT Real-Time Audio Demo with Microphone (React)</h1>
       <div>
-        <button onClick={initSession} disabled={sessionInitialized}>Initialize Session</button>
-        <button onClick={startWebSocket} disabled={!sessionInitialized || wsStarted}>Start WebSocket</button>
+        <button onClick={
+          () => {
+            initializeSessionAndStart();
+            setSessionInitialized(true);
+            setWsStarted(true);
+          }
+        } disabled={sessionInitialized}>Initialize Session and Start WebSocket</button>
       </div>
 
       <div style={{ marginTop: '20px' }}>
