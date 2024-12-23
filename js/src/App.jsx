@@ -6,27 +6,59 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
 
-  // Initialize session
-  const initSession = async () => {
-    const res = await fetch('/init_session', { method: 'POST' });
-    if (res.ok) {
-      const data = await res.json();
-      console.log('Session initialized:', data);
-      setSessionInitialized(true);
-    } else {
-      console.error('Failed to initialize session');
-    }
-  };
+  const [audioChunks, setAudioChunks] = useState([]);
+  const audioContextRef = React.useRef(null);
 
-  // Start WebSocket Connection
-  const startWebSocket = async () => {
-    const res = await fetch('/start', { method: 'GET' });
-    if (res.ok) {
-      const text = await res.text();
-      console.log('WebSocket started:', text);
-      setWsStarted(true);
-    } else {
-      console.error('Failed to start WebSocket');
+  const wsRef = useRef(null);
+
+  useEffect(() => {
+    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+  }, []);
+
+  useEffect(() => {
+    const ws = new WebSocket('ws://127.0.0.1:5660');
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("WebSocket connection established.");
+    };
+    
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+    
+    ws.onclose = () => {
+      console.log("WebSocket connection closed.");
+    };
+
+    ws.onmessage = async (event) => {
+      const data = JSON.parse(event.data);
+
+      console.log("Received event:", JSON.stringify(data, null, 2));
+
+      if (data.type === "audio_delta") {
+        console.log("Received audio delta:", data.delta.length, "bytes");
+        playAudioDelta(data.delta);
+      }
+    };
+
+    return () => ws.close();
+  }, []);
+
+  const playAudioDelta = async (base64Audio) => {
+    try {
+      const audioContext = audioContextRef.current;
+      const audioBuffer = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
+
+      const decodedData = await audioContext.decodeAudioData(audioBuffer.buffer);
+      const source = audioContext.createBufferSource();
+      source.buffer = decodedData;
+      source.connect(audioContext.destination);
+      source.start();
+
+      setAudioChunks((chunks) => [...chunks, audioBuffer]);
+    } catch (err) {
+      console.error("Error decoding audio:", err);
     }
   };
 
@@ -56,6 +88,30 @@ function App() {
       setIsRecording(false);
     }
   };
+
+  function initializeSessionAndStart() {
+    // Step 1: Initialize the session
+    fetch('http://127.0.0.1:5660/init_session', {
+      method: 'POST',
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Failed to initialize session.');
+        }
+        return response.json();
+      })
+      .then((data) => {
+        console.log('Session initialized:', data);
+        // Step 2: Start the WebSocket connection
+        return fetch('http://127.0.0.1:5660/start');
+      })
+      .then(() => {
+        console.log('WebSocket connection started.');
+      })
+      .catch((err) => {
+        console.error(err);
+      });
+  }
 
   // Handle data from MediaRecorder
   useEffect(() => {
@@ -137,8 +193,13 @@ function App() {
     <div>
       <h1>GPT Real-Time Audio Demo with Microphone (React)</h1>
       <div>
-        <button onClick={initSession} disabled={sessionInitialized}>Initialize Session</button>
-        <button onClick={startWebSocket} disabled={!sessionInitialized || wsStarted}>Start WebSocket</button>
+        <button onClick={
+          () => {
+            initializeSessionAndStart();
+            setSessionInitialized(true);
+            setWsStarted(true);
+          }
+        } disabled={sessionInitialized}>Initialize Session and Start WebSocket</button>
       </div>
 
       <div style={{ marginTop: '20px' }}>
