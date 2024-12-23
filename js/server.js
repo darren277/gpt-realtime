@@ -55,6 +55,19 @@ function initializeOpenAIWebSocket() {
     try {
       const data = JSON.parse(message);
       console.log("Received event:", JSON.stringify(data, null, 2));
+
+      if (data.type === "response.audio.delta") {
+        //encodeWAV(pcmData, sampleRate = 24000, numChannels = 1)
+        const wavData = encodeWAV(new Uint8Array(Buffer.from(data.delta, 'base64')));
+        const wavBase64 = Buffer.from(wavData).toString('base64');
+        clients.forEach((client) => {
+          client.send(JSON.stringify({
+            type: "audio_delta",
+            //delta: data.delta, // Send the base64 audio
+            delta: wavBase64,
+          }));
+        });
+      }
     } catch (err) {
       console.error("Failed to parse message:", message, err);
     }
