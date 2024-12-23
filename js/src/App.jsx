@@ -6,6 +6,9 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
 
+  const [audioChunks, setAudioChunks] = useState([]);
+  const audioContextRef = React.useRef(null);
+
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -32,10 +35,32 @@ function App() {
       const data = JSON.parse(event.data);
 
       console.log("Received event:", JSON.stringify(data, null, 2));
+
+      if (data.type === "audio_delta") {
+        console.log("Received audio delta:", data.delta.length, "bytes");
+        playAudioDelta(data.delta);
+      }
     };
 
     return () => ws.close();
   }, []);
+
+  const playAudioDelta = async (base64Audio) => {
+    try {
+      const audioContext = audioContextRef.current;
+      const audioBuffer = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
+
+      const decodedData = await audioContext.decodeAudioData(audioBuffer.buffer);
+      const source = audioContext.createBufferSource();
+      source.buffer = decodedData;
+      source.connect(audioContext.destination);
+      source.start();
+
+      setAudioChunks((chunks) => [...chunks, audioBuffer]);
+    } catch (err) {
+      console.error("Error decoding audio:", err);
+    }
+  };
 
   // Set up MediaRecorder once
   useEffect(() => {
