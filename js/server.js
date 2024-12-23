@@ -7,6 +7,9 @@ const { WebSocket } = require('ws');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
+
+const { encodeWAV } = require('./utils');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SESSION_ENDPOINT = "https://api.openai.com/v1/realtime/sessions";
@@ -16,12 +19,57 @@ let SESSION_ID = null;
 let wsApp = null; // Reference to the WebSocket connection
 
 const app = express();
+
+// Create an HTTP server that wraps the existing Express app
+const server = http.createServer(app);
+
+// Create a WebSocket server attached to the HTTP server
+const wss = new WebSocket.Server({ server });
+
+// Array to store connected WebSocket clients
+const clients = [];
+
 app.use(express.json());
 
 // Set up multer for handling multipart/form-data (audio uploads)
 const upload = multer({ storage: multer.memoryStorage() });
 
+function initializeOpenAIWebSocket() {
+  if (!CLIENT_SECRET) {
+    throw new Error("Session not initialized. Call /init_session first.");
+  }
+
+  const realtimeUrl = `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17`;
+  const ws = new WebSocket(realtimeUrl, {
+    headers: {
+      'Authorization': `Bearer ${CLIENT_SECRET}`,
+      'OpenAI-Beta': 'realtime=v1'
+    }
+  });
+
+  ws.on('open', () => {
+    console.log('Connected to OpenAI server.');
+  });
+
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      console.log("Received event:", JSON.stringify(data, null, 2));
+    } catch (err) {
+      console.error("Failed to parse message:", message, err);
+    }
+  });
+
+  ws.on('error', (err) => {
+    console.error('WebSocket error:', err);
+  });
+
+  return ws;
+}
+
 app.post('/init_session', async (req, res) => {
+  console.log("Session initializing...");
+
   const payload = {
     "model": "gpt-4o-realtime-preview-2024-12-17",
     "modalities": ["text", "audio"],
@@ -57,36 +105,33 @@ app.post('/init_session', async (req, res) => {
 });
 
 app.get('/start', (req, res) => {
-  if (!CLIENT_SECRET) {
-    return res.status(400).send("Session not initialized yet.");
+  if (wsApp) {
+    return res.status(400).send("WebSocket already initialized.");
   }
 
-  const realtimeUrl = `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17`;
-  wsApp = new WebSocket(realtimeUrl, {
-    headers: {
-      'Authorization': `Bearer ${CLIENT_SECRET}`,
-      'OpenAI-Beta': 'realtime=v1'
-    }
+  try {
+    wsApp = initializeOpenAIWebSocket();
+    res.send("WebSocket connection started!");
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send(err.message);
+  }
+});
+
+wss.on('connection', (ws) => {
+  console.log('WebSocket client connected.');
+  clients.push(ws);
+
+  ws.on('close', () => {
+    const index = clients.indexOf(ws);
+    if (index !== -1) clients.splice(index, 1);
+    console.log('WebSocket client disconnected.');
   });
 
-  wsApp.on('open', () => {
-    console.log('Connected to server.');
+  // Optionally, handle messages from frontend clients if needed
+  ws.on('message', (message) => {
+    console.log('Message from frontend:', message);
   });
-
-  wsApp.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      console.log("Received event:", JSON.stringify(data, null, 2));
-    } catch (err) {
-      console.error("Failed to parse message:", message, err);
-    }
-  });
-
-  wsApp.on('error', (err) => {
-    console.error('WebSocket error:', err);
-  });
-
-  return res.send("WebSocket connection started!");
 });
 
 app.post('/send', async (req, res) => {
@@ -204,6 +249,6 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 5658;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Node server listening on port ${PORT}`);
 });
