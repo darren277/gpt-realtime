@@ -14,26 +14,11 @@ interface Session {
   latestMediaTimestamp?: number;
 }
 
-let session = {};
-
-export function handleCallConnection(ws) {
-  cleanupConnection(session.twilioConn);
-  session.twilioConn = ws;
-
-  ws.on("message", handleTwilioMessage);
-  ws.on("error", ws.close);
-  ws.on("close", () => {
-    cleanupConnection(session.modelConn);
-    cleanupConnection(session.twilioConn);
-    session.twilioConn = undefined;
-    session.modelConn = undefined;
-    session.streamSid = undefined;
-    session.lastAssistantItem = undefined;
-    session.responseStartTimestamp = undefined;
-    session.latestMediaTimestamp = undefined;
-    if (!session.frontendConn) session = {};
-  });
-}
+let session = {
+    frontendConn: undefined,
+    modelConn: undefined,
+    // other session-level data...
+};
 
 export function handleFrontendConnection(ws) {
   cleanupConnection(session.frontendConn);
@@ -43,7 +28,7 @@ export function handleFrontendConnection(ws) {
   ws.on("close", () => {
     cleanupConnection(session.frontendConn);
     session.frontendConn = undefined;
-    if (!session.twilioConn && !session.modelConn) session = {};
+    if (!session.modelConn) session = {};
   });
 }
 
@@ -75,33 +60,6 @@ async function handleFunctionCall(item) {
   }
 }
 
-function handleTwilioMessage(data) {
-  const msg = parseMessage(data);
-  if (!msg) return;
-
-  switch (msg.event) {
-    case "start":
-      session.streamSid = msg.start.streamSid;
-      session.latestMediaTimestamp = 0;
-      session.lastAssistantItem = undefined;
-      session.responseStartTimestamp = undefined;
-      tryConnectModel();
-      break;
-    case "media":
-      session.latestMediaTimestamp = msg.media.timestamp;
-      if (isOpen(session.modelConn)) {
-        jsonSend(session.modelConn, {
-          type: "input_audio_buffer.append",
-          audio: msg.media.payload,
-        });
-      }
-      break;
-    case "close":
-      closeAllConnections();
-      break;
-  }
-}
-
 function handleFrontendMessage(data) {
   const msg = parseMessage(data);
   if (!msg) return;
@@ -115,46 +73,53 @@ function handleFrontendMessage(data) {
   }
 }
 
-function tryConnectModel() {
-  if (!session.twilioConn || !session.streamSid) return;
-  if (isOpen(session.modelConn)) return;
-
-  session.modelConn = new WebSocket(
-    "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
-    {
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "OpenAI-Beta": "realtime=v1",
-      },
-    }
-  );
-
-  session.modelConn.on("open", () => {
-    const config = session.saved_config || {};
-    jsonSend(session.modelConn, {
-      type: "session.update",
-      session: {
-        modalities: ["text", "audio"],
-        turn_detection: { type: "server_vad" },
-        voice: "ash",
-        input_audio_transcription: { model: "whisper-1" },
-        input_audio_format: "g711_ulaw",
-        output_audio_format: "g711_ulaw",
-        ...config,
-      },
+export function handleModelConnection() {
+    // If modelConn is already open, skip
+    if (isOpen(session.modelConn)) return;
+  
+    const ws = new WebSocket(
+      "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
+      {
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "OpenAI-Beta": "realtime=v1",
+        },
+      }
+    );
+  
+    ws.on('open', () => {
+      // Example: send session.update
+      sendJSON(ws, {
+        type: "session.update",
+        session: {
+            modalities: ["text", "audio"],
+            turn_detection: { type: "server_vad" },
+            voice: "ash",
+            input_audio_transcription: { model: "whisper-1" },
+            input_audio_format: "g711_ulaw",
+            output_audio_format: "g711_ulaw",
+        },
+      });
     });
-  });
-
-  session.modelConn.on("message", handleModelMessage);
-  session.modelConn.on("error", closeModel);
-  session.modelConn.on("close", closeModel);
-}
-
+  
+    ws.on('message', handleModelMessage);
+    ws.on('error', closeModelConn);
+    ws.on('close', closeModelConn);
+  
+    session.modelConn = ws;
+  }
+  
 function handleModelMessage(data) {
   const event = parseMessage(data);
   if (!event) return;
 
+  // Always forward events to the frontend
   jsonSend(session.frontendConn, event);
+
+  // Example function call scenario:
+  if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
+    handleFunctionCall(event.item);
+  }
 
   switch (event.type) {
     case "input_audio_buffer.speech_started":
@@ -238,7 +203,7 @@ function handleTruncation() {
   session.responseStartTimestamp = undefined;
 }
 
-function closeModel() {
+function closeModelConn() {
   cleanupConnection(session.modelConn);
   session.modelConn = undefined;
   if (!session.twilioConn && !session.frontendConn) session = {};
