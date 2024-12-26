@@ -8,14 +8,39 @@ function App() {
   const recorderNodeRef = useRef(null);
   const wsRef = useRef(null);
 
+  const playAudioDelta = async (base64Audio) => {
+    console.log("!!!!!!!!!!!!!!!!!!!!!!!!! Playing audio delta:", base64Audio.length, "bytes", typeof base64Audio);
+    try {
+      const audioContext = audioContextRef.current;
+      const audioBuffer = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
+
+      const decodedData = await audioContext.decodeAudioData(audioBuffer.buffer);
+      const source = audioContext.createBufferSource();
+      source.buffer = decodedData;
+      source.connect(audioContext.destination);
+      source.start();
+
+      setAudioChunks((chunks) => [...chunks, audioBuffer]);
+    } catch (err) {
+      console.error("Error decoding audio:", err);
+    }
+  };
+
   useEffect(() => {
     // Create WebSocket
     const ws = new WebSocket('ws://127.0.0.1:5660');
     wsRef.current = ws;
 
     ws.onopen = () => console.log('WS open');
-    ws.onmessage = (e) => {
+    ws.onmessage = async (e) => {
+      console.log('WS message:', e);
+      
       // e.g. handle GPT audio deltas
+      const data = JSON.parse(e.data);
+      if (data.type === "audio_delta") {
+        console.log("Received audio delta:", data.delta.length, "bytes");
+        await playAudioDelta(data.delta);
+      }
     };
     ws.onclose = () => console.log('WS closed');
     return () => ws.close();
