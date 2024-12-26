@@ -117,58 +117,6 @@ function App() {
       });
   }
 
-  // Handle data from MediaRecorder
-  useEffect(() => {
-    if (!mediaRecorder) return;
-
-    let recordedChunks = [];
-
-    const onDataAvailable = e => {
-      if (e.data.size > 0) {
-        recordedChunks.push(e.data);
-      }
-    };
-
-    const onStop = async () => {
-      const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-      recordedChunks = [];
-      
-      // Send this blob to the server
-      const formData = new FormData();
-      formData.append('audio', blob);
-
-      const res = await fetch('/conversation_item_create', {
-        method: 'POST',
-        body: formData
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        console.log('conversation.item.create response:', data);
-
-        // Now request assistant response
-        const resp = await fetch('/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: "Please respond to the user's audio." })
-        });
-
-        const respText = await resp.text();
-        console.log('response.create triggered:', respText);
-      } else {
-        console.error('Failed to create conversation item');
-      }
-    };
-
-    mediaRecorder.addEventListener('dataavailable', onDataAvailable);
-    mediaRecorder.addEventListener('stop', onStop);
-
-    return () => {
-      mediaRecorder.removeEventListener('dataavailable', onDataAvailable);
-      mediaRecorder.removeEventListener('stop', onStop);
-    };
-  }, [mediaRecorder]);
-
   const handleInterrupt = async () => {
     // Suppose we know how far the user has listened:
     // For simplicity, just send a truncate event with an arbitrary time.

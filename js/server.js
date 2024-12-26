@@ -178,14 +178,6 @@ app.post('/truncate_audio', async (req, res) => {
   return res.send("Truncation event sent!");
 });
 
-app.post('/conversation_item_create', upload.single('audio'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).send("No audio file provided.");
-  }
-
-  convert_audio_and_send(req.file.buffer, "conversation.item.create", res);
-});
-
 const convert_audio_and_send = (audioData, event_type, res) => {
   // Convert audio (webm/opus) to PCM16 mono 24kHz via ffmpeg
   const ffmpeg = spawn('ffmpeg', [
