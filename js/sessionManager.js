@@ -1,8 +1,14 @@
-import { RawData, WebSocket } from "ws";
-import functions from "./functionHandlers";
+const { WebSocket } = require("ws");
+//import functions from "./functionHandlers";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
+if (!OPENAI_API_KEY) {
+  console.error("OPENAI_API_KEY is required.");
+  process.exit(1);
+}
+
+/*
 interface Session {
   twilioConn?: WebSocket;
   frontendConn?: WebSocket;
@@ -13,6 +19,7 @@ interface Session {
   responseStartTimestamp?: number;
   latestMediaTimestamp?: number;
 }
+*/
 
 let session = {
     frontendConn: undefined,
@@ -20,7 +27,7 @@ let session = {
     // other session-level data...
 };
 
-export function handleFrontendConnection(ws) {
+function handleFrontendConnection(ws) {
   cleanupConnection(session.frontendConn);
   session.frontendConn = ws;
 
@@ -71,9 +78,22 @@ function handleFrontendMessage(data) {
   if (msg.type === "session.update") {
     session.saved_config = msg.session;
   }
+
+  if (msg.type === "input_audio_buffer.append") {
+    console.log("Forwarding audio to GPT:", msg.audio.length, "bytes");
+
+    if (isOpen(session.modelConn)) {
+      jsonSend(session.modelConn, {
+        type: "input_audio_buffer.append",
+        audio: msg.audio, // Base64-encoded audio from frontend
+      });
+    } else {
+      console.error("GPT WebSocket is not open. Cannot forward audio.");
+    }
+  }
 }
 
-export function handleModelConnection() {
+function handleModelConnection() {
     // If modelConn is already open, skip
     if (isOpen(session.modelConn)) return;
   
@@ -89,29 +109,45 @@ export function handleModelConnection() {
   
     ws.on('open', () => {
       // Example: send session.update
-      sendJSON(ws, {
+      jsonSend(ws, {
         type: "session.update",
         session: {
             modalities: ["text", "audio"],
             turn_detection: { type: "server_vad" },
             voice: "ash",
             input_audio_transcription: { model: "whisper-1" },
-            input_audio_format: "g711_ulaw",
-            output_audio_format: "g711_ulaw",
+            //input_audio_format: "g711_ulaw",
+            //output_audio_format: "g711_ulaw",
+            input_audio_format: "pcm16",
+            output_audio_format: "pcm16",
         },
       });
+      flushQueue(ws);
     });
   
-    ws.on('message', handleModelMessage);
-    ws.on('error', closeModelConn);
-    ws.on('close', closeModelConn);
+    ws.on("error", (err) => {
+        console.error("Error connecting to GPT WebSocket:", err);
+      });
+    
+      ws.on("close", () => {
+        console.log("GPT WebSocket closed.");
+        closeModelConn();
+      });
+    
+      ws.on("message", (data) => {
+        const event = JSON.parse(data);
+        console.log("Received event from GPT:", event);
+        handleModelMessage(data);
+      });
   
     session.modelConn = ws;
   }
-  
+
 function handleModelMessage(data) {
   const event = parseMessage(data);
   if (!event) return;
+
+  console.log("?????????????? Received event from model:", event);
 
   // Always forward events to the frontend
   jsonSend(session.frontendConn, event);
@@ -126,29 +162,35 @@ function handleModelMessage(data) {
       handleTruncation();
       break;
 
-    case "response.audio.delta":
-      if (session.twilioConn && session.streamSid) {
+      case "response.audio.delta": {
+        // If your session has some concept of "when the response started," track it here:
         if (session.responseStartTimestamp === undefined) {
           session.responseStartTimestamp = session.latestMediaTimestamp || 0;
         }
-        if (event.item_id) session.lastAssistantItem = event.item_id;
+        if (event.item_id) {
+          session.lastAssistantItem = event.item_id;
+        }
+      
+        // Forward the base64 audio to the frontend:
+        if (isOpen(session.frontendConn)) {
+          jsonSend(session.frontendConn, {
+            type: "audio_delta",
+            delta: event.delta, // This is base64 PCM or WAV, depending on your session config
+            item_id: event.item_id,
+          });
+        }
 
-        jsonSend(session.twilioConn, {
-          event: "media",
-          streamSid: session.streamSid,
-          media: { payload: event.delta },
-        });
 
         jsonSend(session.twilioConn, {
           event: "mark",
           streamSid: session.streamSid,
         });
+        break;
       }
-      break;
 
     case "response.output_item.done": {
       const { item } = event;
-      if (item.type === "function_call") {
+      if (item?.type === "function_call") {
         handleFunctionCall(item)
           .then((output) => {
             if (session.modelConn) {
@@ -173,16 +215,15 @@ function handleModelMessage(data) {
 }
 
 function handleTruncation() {
-  if (
-    !session.lastAssistantItem ||
-    session.responseStartTimestamp === undefined
-  )
+  if (!session.lastAssistantItem || session.responseStartTimestamp === undefined) {
     return;
+  }
 
   const elapsedMs =
     (session.latestMediaTimestamp || 0) - (session.responseStartTimestamp || 0);
   const audio_end_ms = elapsedMs > 0 ? elapsedMs : 0;
 
+  // Send conversation.item.truncate to GPT
   if (isOpen(session.modelConn)) {
     jsonSend(session.modelConn, {
       type: "conversation.item.truncate",
@@ -192,16 +233,11 @@ function handleTruncation() {
     });
   }
 
-  if (session.twilioConn && session.streamSid) {
-    jsonSend(session.twilioConn, {
-      event: "clear",
-      streamSid: session.streamSid,
-    });
-  }
-
+  // Reset session audio tracking
   session.lastAssistantItem = undefined;
   session.responseStartTimestamp = undefined;
 }
+
 
 function closeModelConn() {
   cleanupConnection(session.modelConn);
@@ -241,11 +277,45 @@ function parseMessage(data) {
   }
 }
 
+let messageQueue = [];
+
 function jsonSend(ws, obj) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.warn("WebSocket not open. Message not sent:", obj);
+    messageQueue.push(obj);
+    return;
+  }
+  console.log("Sending to ws:", isOpen(ws), obj);
   if (!isOpen(ws)) return;
   ws.send(JSON.stringify(obj));
+
+  // Send any queued messages
+//   while (messageQueue.length > 0) {
+//     const queuedMessage = messageQueue.shift();
+//     console.log("Sending queued message:", queuedMessage);
+//     ws.send(JSON.stringify(queuedMessage));
+//   }
+}
+
+// Flush queued messages on WebSocket open
+function flushQueue(ws) {
+    while (messageQueue.length > 0 && ws.readyState === WebSocket.OPEN) {
+      const queuedMessage = messageQueue.shift();
+      console.log("Flushing queued message:", queuedMessage);
+      ws.send(JSON.stringify(queuedMessage));
+    }
 }
 
 function isOpen(ws) {
+  console.log("WebSocket state:", ws ? ws.readyState : "No WebSocket");
   return !!ws && ws.readyState === WebSocket.OPEN;
 }
+
+module.exports = {
+    session,
+    handleFrontendConnection,
+    handleModelConnection,
+    closeAllConnections,
+    jsonSend,
+    isOpen,
+};

@@ -9,7 +9,10 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 
+//import {handleCallConnection, handleFrontendConnection} from "./sessionManager";
+
 const { encodeWAV } = require('./utils');
+const { session, handleModelConnection, isOpen, jsonSend } = require('./sessionManager');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SESSION_ENDPOINT = "https://api.openai.com/v1/realtime/sessions";
@@ -34,7 +37,7 @@ app.use(express.json());
 // Set up multer for handling multipart/form-data (audio uploads)
 const upload = multer({ storage: multer.memoryStorage() });
 
-function initializeOpenAIWebSocket() {
+function initializeOpenAIWebSocketOld() {
   if (!CLIENT_SECRET) {
     throw new Error("Session not initialized. Call /init_session first.");
   }
@@ -118,12 +121,13 @@ app.post('/init_session', async (req, res) => {
 });
 
 app.get('/start', (req, res) => {
-  if (wsApp) {
-    return res.status(400).send("WebSocket already initialized.");
-  }
+  // if (wsApp) {
+  //   return res.status(400).send("WebSocket already initialized.");
+  // }
 
   try {
-    wsApp = initializeOpenAIWebSocket();
+    //wsApp = initializeOpenAIWebSocket();
+    handleModelConnection();
     res.send("WebSocket connection started!");
   } catch (err) {
     console.error(err.message);
@@ -144,8 +148,51 @@ wss.on('connection', (ws) => {
   // Optionally, handle messages from frontend clients if needed
   ws.on('message', (message) => {
     console.log('Message from frontend:', message);
+
+    const msg = JSON.parse(message);
+    console.log("Received message", msg);
+    if (msg.type === 'input_audio_buffer.append') {
+      // Forward to GPT modelConn
+      if (isOpen(session.modelConn)) {
+        // jsonSend(session.modelConn, {
+        //   type: 'input_audio_buffer.append',
+        //   audio: msg.audio,  // base64 PCM or whichever format
+        // });
+        if (msg.audio) {
+          const rawAudio = Buffer.from(msg.audio, 'base64'); // Decode base64 audio from front end
+          convert_audio_and_send(rawAudio, 'input_audio_buffer.append');
+        }
+      }
+    }
+
+    const wavData = encodeWAV(new Uint8Array(Buffer.from(msg.audio, 'base64')));
+    const wavBase64 = Buffer.from(wavData).toString('base64');
+    broadcastAudioDelta(wavBase64);
   });
+
+  // Example: Test broadcasting a message to all connected clients
+  setInterval(() => {
+    clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'test', message: 'Test message from server' }));
+      }
+    });
+  }, 5000); // Send a test message every 5 seconds
 });
+
+// Example: Broadcast audio_delta messages to all connected clients
+function broadcastAudioDelta(delta) {
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(
+        JSON.stringify({
+          type: 'audio_delta',
+          delta: delta, // base64 audio data
+        })
+      );
+    }
+  });
+}
 
 app.post('/send', async (req, res) => {
   if (!wsApp || wsApp.readyState !== WebSocket.OPEN) {
@@ -192,8 +239,10 @@ app.post('/conversation_item_create', upload.single('audio'), async (req, res) =
     return res.status(400).send("No audio file provided.");
   }
 
-  const audioData = req.file.buffer;
+  convert_audio_and_send(req.file.buffer, "conversation.item.create", res);
+});
 
+const convert_audio_and_send = (audioData, event_type, res) => {
   // Convert audio (webm/opus) to PCM16 mono 24kHz via ffmpeg
   const ffmpeg = spawn('ffmpeg', [
     '-i', 'pipe:0',    // read from stdin
@@ -215,7 +264,9 @@ app.post('/conversation_item_create', upload.single('audio'), async (req, res) =
 
   ffmpeg.on('close', (code) => {
     if (code !== 0) {
-      return res.status(500).send("Error processing audio");
+      if (res !== undefined) {
+        return res.status(500).send("Error processing audio");
+      }
     }
 
     // Base64 encode PCM data
@@ -226,7 +277,7 @@ app.post('/conversation_item_create', upload.single('audio'), async (req, res) =
 
     const event = {
       "event_id": eventId,
-      "type": "conversation.item.create",
+      "type": event_type,
       "previous_item_id": null,
       "item": {
         "id": itemId,
@@ -241,13 +292,16 @@ app.post('/conversation_item_create', upload.single('audio'), async (req, res) =
       }
     };
 
-    wsApp.send(JSON.stringify(event));
-    return res.json({ status: "ok", event_id: eventId, item_id: itemId });
+    //wsApp.send(JSON.stringify(event));
+    session.modelConn.send(JSON.stringify(event));
+    if (res !== undefined) {
+      return res.json({ status: "ok", event_id: eventId, item_id: itemId });
+    }
   });
 
   ffmpeg.stdin.write(audioData);
   ffmpeg.stdin.end();
-});
+};
 
 const crypto = require('crypto');
 function cryptoRandomId(length) {
