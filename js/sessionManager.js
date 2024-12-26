@@ -59,7 +59,7 @@ function handleModelConnection() {
     // If modelConn is already open, skip
     if (isOpen(session.modelConn)) return;
   
-    const ws = new WebSocket(
+    session.modelConn = new WebSocket(
       "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
       {
         headers: {
@@ -69,9 +69,9 @@ function handleModelConnection() {
       }
     );
   
-    ws.on('open', () => {
+    session.modelConn.on('open', () => {
       // Example: send session.update
-      jsonSend(ws, {
+      jsonSend(session.modelConn, {
         type: "session.update",
         session: {
             modalities: ["text", "audio"],
@@ -83,26 +83,24 @@ function handleModelConnection() {
             input_audio_format: "pcm16",
             output_audio_format: "pcm16",
         },
-      });
-      flushQueue(ws);
+      }, 'handleModelConnection');
+      flushQueue(session.modelConn);
     });
   
-    ws.on("error", (err) => {
+    session.modelConn.on("error", (err) => {
         console.error("Error connecting to GPT WebSocket:", err);
       });
     
-      ws.on("close", () => {
+      session.modelConn.on("close", () => {
         console.log("GPT WebSocket closed.");
         closeModelConn();
       });
     
-      ws.on("message", (data) => {
+      session.modelConn.on("message", (data) => {
         const event = JSON.parse(data);
         console.log("Received event from GPT:", event);
         handleModelMessage(data);
       });
-  
-    session.modelConn = ws;
   }
 
 function handleModelMessage(data) {
@@ -120,6 +118,18 @@ function handleModelMessage(data) {
     case "input_audio_buffer.speech_started":
       handleTruncation();
       break;
+    
+      case "input_audio_buffer.append": {
+        // If your session has some concept of "when the audio started," track it here:
+        if (session.latestMediaTimestamp === undefined) {
+          session.latestMediaTimestamp = Date.now();
+        }
+        console.log(`Received audio chunk of size: ${event.data.audio.length}`);
+        // Forward the base64 audio to the frontend:
+        // This is base64 PCM or WAV, depending on your session config
+        //jsonSend(session.frontendConn, {type: "audio_append", audio: event.audio});
+        break;
+      }
 
       case "response.audio.delta": {
         // If your session has some concept of "when the response started," track it here:
@@ -129,23 +139,48 @@ function handleModelMessage(data) {
         if (event.item_id) {
           session.lastAssistantItem = event.item_id;
         }
-      
+
+        // clients.forEach((client) => {
+        //     if (isOpen(session.frontendConn) && client.readyState === WebSocket.OPEN) {
+        //       // base64 PCM16 audio
+        //       client.send(JSON.stringify({type: 'audio_delta', delta: gptEvent.delta}));
+        //     } else {
+        //         console.warn('Client not connected. Message not sent:', gptEvent);
+        //     }
+        // });
+
+        // OR???
+
         // Forward the base64 audio to the frontend:
-        if (isOpen(session.frontendConn)) {
-          jsonSend(session.frontendConn, {
-            type: "audio_delta",
-            delta: event.delta, // This is base64 PCM or WAV, depending on your session config
-            item_id: event.item_id,
-          });
-        }
-
-
-        jsonSend(session.twilioConn, {
-          event: "mark",
-          streamSid: session.streamSid,
-        });
+        // This is base64 PCM or WAV, depending on your session config
+        jsonSend(session.frontendConn, {type: "audio_delta", delta: event.delta, item_id: event.item_id}, 'handleModelMessage_response.audio.delta');
         break;
       }
+    
+    case 'response.content_part.done': {
+        // Example: handle content_part.done event
+        // This event is sent for each part of a multipart response (e.g. a long text response or a response with multiple audio segments)
+        // You can use this event to stream the response to the client or to perform other actions based on the response parts
+        console.log("Received response content part:", event);
+
+        // Example: send audio deltas to the client
+        if (event.audio) {
+          // clients.forEach((client) => {
+          //   if (isOpen(client)) {
+          //     // base64 PCM16 audio
+          //     client.send(JSON.stringify({type: 'audio_delta', delta: event.audio}));
+          //   } else {
+          //     console.warn('Client not connected. Message not sent:', event);
+          //   }
+          // });
+
+          // OR???
+
+          // Forward the base64 audio to the frontend:
+          // This is base64 PCM or WAV, depending on your session config
+          jsonSend(session.frontendConn, {type: "audio_delta", delta: event.audio, item_id: event.item_id}, 'handleModelMessage_response.content_part.done');
+        }
+    }
 
     case "response.output_item.done": {
       const { item } = event;
@@ -161,7 +196,7 @@ function handleModelMessage(data) {
                   output: JSON.stringify(output),
                 },
               });
-              jsonSend(session.modelConn, { type: "response.create" });
+              jsonSend(session.modelConn, { type: "response.create" }, 'handleModelMessage_response.output_item.done');
             }
           })
           .catch((err) => {
@@ -189,7 +224,7 @@ function handleTruncation() {
       item_id: session.lastAssistantItem,
       content_index: 0,
       audio_end_ms,
-    });
+    }, 'handleTruncation');
   }
 
   // Reset session audio tracking
@@ -238,10 +273,15 @@ function parseMessage(data) {
 
 let messageQueue = [];
 
-function jsonSend(ws, obj) {
+function jsonSend(ws, obj, source) {
+    console.log("JSON SEND SOURCE:", source);
+    console.log("WS", ws);
+    console.log("WS state", ws.readyState);
+    console.log("isOpen", isOpen(ws));
+    console.log("obj", obj);
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     console.warn("WebSocket not open. Message not sent:", obj);
-    messageQueue.push(obj);
+    //messageQueue.push(obj);
     return;
   }
   if (!isOpen(ws)) return;

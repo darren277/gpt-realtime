@@ -92,16 +92,29 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('message', (rawMsg) => {
-    const msg = JSON.parse(rawMsg);
-    if (msg.type === 'input_audio_buffer.append' && msg.audio) {
-      // Forward directly to GPT
-      const event = {
-        type: 'input_audio_buffer.append',
-        audio: msg.audio, // base64 PCM16
-      };
-      session.modelConn.send(JSON.stringify(event));
+    try {
+      const msg = JSON.parse(rawMsg);
+      if (msg.type === 'input_audio_buffer.append' && msg.audio) {
+        // Forward audio input to GPT
+        const event = {
+          type: 'input_audio_buffer.append',
+          audio: msg.audio, // base64 PCM16
+        };
+        session.modelConn.send(JSON.stringify(event));
+      }
+    } catch (err) {
+      console.error('Error processing client message:', err);
     }
   });
+
+  // Example: Send test message to clients every 5 seconds
+  setInterval(() => {
+    clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'test', message: 'Hello from server!' }));
+      }
+    });
+  }, 5000); // Optional for debugging
 });
 
 app.post('/send', async (req, res) => {
