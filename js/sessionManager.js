@@ -27,18 +27,6 @@ let session = {
     // other session-level data...
 };
 
-function handleFrontendConnection(ws) {
-  cleanupConnection(session.frontendConn);
-  session.frontendConn = ws;
-
-  ws.on("message", handleFrontendMessage);
-  ws.on("close", () => {
-    cleanupConnection(session.frontendConn);
-    session.frontendConn = undefined;
-    if (!session.modelConn) session = {};
-  });
-}
-
 async function handleFunctionCall(item) {
   console.log("Handling function call:", item);
   const fnDef = functions.find((f) => f.schema.name === item.name);
@@ -64,32 +52,6 @@ async function handleFunctionCall(item) {
     return JSON.stringify({
       error: `Error running function ${item.name}: ${err.message}`,
     });
-  }
-}
-
-function handleFrontendMessage(data) {
-  const msg = parseMessage(data);
-  if (!msg) return;
-
-  if (isOpen(session.modelConn)) {
-    jsonSend(session.modelConn, msg);
-  }
-
-  if (msg.type === "session.update") {
-    session.saved_config = msg.session;
-  }
-
-  if (msg.type === "input_audio_buffer.append") {
-    console.log("Forwarding audio to GPT:", msg.audio.length, "bytes");
-
-    if (isOpen(session.modelConn)) {
-      jsonSend(session.modelConn, {
-        type: "input_audio_buffer.append",
-        audio: msg.audio, // Base64-encoded audio from frontend
-      });
-    } else {
-      console.error("GPT WebSocket is not open. Cannot forward audio.");
-    }
   }
 }
 
@@ -313,7 +275,6 @@ function isOpen(ws) {
 
 module.exports = {
     session,
-    handleFrontendConnection,
     handleModelConnection,
     closeAllConnections,
     jsonSend,

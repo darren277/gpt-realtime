@@ -9,8 +9,6 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 
-//import {handleCallConnection, handleFrontendConnection} from "./sessionManager";
-
 const { encodeWAV } = require('./utils');
 const { session, handleModelConnection, isOpen, jsonSend } = require('./sessionManager');
 
