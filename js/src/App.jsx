@@ -1,97 +1,101 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 
 function App() {
   const [sessionInitialized, setSessionInitialized] = useState(false);
   const [wsStarted, setWsStarted] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [listening, setListening] = useState(false);
-  const mediaRecorderRef = useRef(null);
-  const [mediaRecorder, setMediaRecorder] = useState(null);
-
-  const [audioChunks, setAudioChunks] = useState([]);
-  const audioContextRef = React.useRef(null);
-
+  const audioContextRef = useRef(null);
+  const recorderNodeRef = useRef(null);
   const wsRef = useRef(null);
 
   useEffect(() => {
-    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-  }, []);
-
-  useEffect(() => {
+    // Create WebSocket
     const ws = new WebSocket('ws://127.0.0.1:5660');
     wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log("WebSocket connection established.");
+    ws.onopen = () => console.log('WS open');
+    ws.onmessage = (e) => {
+      // e.g. handle GPT audio deltas
     };
-    
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-    };
-    
-    ws.onclose = () => {
-      console.log("WebSocket connection closed.");
-    };
-
-    ws.onmessage = async (event) => {
-      const data = JSON.parse(event.data);
-
-      console.log("Received event:", JSON.stringify(data, null, 2));
-
-      if (data.type === "audio_delta") {
-        console.log("Received audio delta:", data.delta.length, "bytes");
-        await playAudioDelta(data.delta);
-      }
-      //handleRealtimeEvent(data);
-    };
-
+    ws.onclose = () => console.log('WS closed');
     return () => ws.close();
   }, []);
 
-  const playAudioDelta = async (base64Audio) => {
-    console.log("!!!!!!!!!!!!!!!!!!!!!!!!! Playing audio delta:", base64Audio.length, "bytes", typeof base64Audio);
-    try {
-      const audioContext = audioContextRef.current;
-      const audioBuffer = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
+  async function startListening() {
+    if (listening) return;
+    setListening(true);
 
-      const decodedData = await audioContext.decodeAudioData(audioBuffer.buffer);
-      const source = audioContext.createBufferSource();
-      source.buffer = decodedData;
-      source.connect(audioContext.destination);
-      source.start();
+    // 1) AudioContext
+    audioContextRef.current = new AudioContext();
 
-      setAudioChunks((chunks) => [...chunks, audioBuffer]);
-    } catch (err) {
-      console.error("Error decoding audio:", err);
-    }
-  };
+    // 2) Add our custom Processor
+    await audioContextRef.current.audioWorklet.addModule('/RecorderProcessor.js');
 
-  // Set up MediaRecorder once
-  useEffect(() => {
-    (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const recorder = new MediaRecorder(stream);
-        setMediaRecorder(recorder);
-      } catch (err) {
-        console.error('Failed to get user media:', err);
+    // 3) Create our node
+    recorderNodeRef.current = new AudioWorkletNode(
+      audioContextRef.current,
+      'recorder-processor'
+    );
+
+    // 4) Handle PCM chunks from the processor
+    recorderNodeRef.current.port.onmessage = (event) => {
+      const { samples } = event.data;
+      if (!samples) return;
+
+      // (Optional) downsample from 48k -> 24k
+      const downsampled = naiveDownsample(samples, 2);
+      const int16 = float32ToInt16(downsampled);
+      const base64Data = bufferToBase64(int16);
+      
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({ type: 'input_audio_buffer.append', audio: base64Data })
+        );
       }
-    })();
-  }, []);
+    };
 
-  const handleRecordStart = () => {
-    if (mediaRecorder && mediaRecorder.state === 'inactive') {
-      mediaRecorder.start();
-      setIsRecording(true);
-    }
-  };
+    // 5) Get mic and connect
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const source = audioContextRef.current.createMediaStreamSource(stream);
+    source.connect(recorderNodeRef.current);
+    // Not connecting recorderNode to destination to avoid feedback
+  }
 
-  const handleRecordStop = () => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stop();
-      setIsRecording(false);
+  function stopListening() {
+    setListening(false);
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
     }
-  };
+  }
+
+  function float32ToInt16(float32Array) {
+    const int16Array = new Int16Array(float32Array.length);
+    for (let i = 0; i < float32Array.length; i++) {
+      let s = float32Array[i];
+      s = s < 0 ? s * 0x8000 : s * 0x7FFF; // convert from [-1, 1] to int16
+      int16Array[i] = Math.max(-32768, Math.min(32767, s));
+    }
+    return int16Array;
+  }
+
+  function naiveDownsample(inputFloat32, factor) {
+    const output = new Float32Array(Math.floor(inputFloat32.length / factor));
+    let j = 0;
+    for (let i = 0; i < inputFloat32.length; i += factor) {
+      output[j++] = inputFloat32[i];
+    }
+    return output;
+  }
+
+  function bufferToBase64(int16Array) {
+    const bytes = new Uint8Array(int16Array.buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
 
   function initializeSessionAndStart() {
     // Step 1: Initialize the session
@@ -117,82 +121,8 @@ function App() {
       });
   }
 
-  const handleInterrupt = async () => {
-    // Suppose we know how far the user has listened:
-    // For simplicity, just send a truncate event with an arbitrary time.
-    const playedMs = 1500;
-    const truncateEvent = {
-      event_id: crypto.randomUUID(),
-      type: "conversation.item.truncate",
-      item_id: "msg_002",
-      content_index: 0,
-      audio_end_ms: playedMs
-    };
-
-    const res = await fetch('/truncate_audio', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(truncateEvent)
-    });
-    if (!res.ok) {
-      console.error('Error truncating:', await res.text());
-    } else {
-      console.log('Truncation successful');
-    }
-  };
-
-   // Toggles the microphone on/off
-   const toggleListening = async () => {
-    if (!listening) {
-      // Turn on listening
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-
-        mediaRecorder.ondataavailable = (e) => {
-          // Log out base64Data.length (or e.data.size) to ensure it’s not zero. If you see it’s zero, you can choose to skip sending an event at all.
-          console.log('Audio chunk size:', e.data.size);
-          if (e.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-            const reader = new FileReader();
-            reader.onload = () => {
-              // Convert the raw audio file into base64
-              const base64Data = btoa(new Uint8Array(reader.result).reduce((data, byte) => data + String.fromCharCode(byte), ''));
-              // Send to the server -> the server relays to GPT via input_audio_buffer.append
-              console.log("Base64 audio data length:", base64Data.length);
-              const msg = {
-                type: 'input_audio_buffer.append', 
-                audio: base64Data 
-              };
-              wsRef.current.send(JSON.stringify(msg));
-            };
-            reader.readAsArrayBuffer(e.data);
-          }
-        };
-
-        // NOTE TO SELF!
-        // You can increase the chunk duration (e.g., call mediaRecorder.start(500) instead of mediaRecorder.start(250)).
-        //mediaRecorder.start(250);
-        mediaRecorder.start(1000);
-        // Collect data every 250ms; you can adjust chunk duration as needed
-
-        mediaRecorderRef.current = mediaRecorder;
-        setListening(true);
-      } catch (err) {
-        console.error('Error accessing microphone:', err);
-      }
-    } else {
-      // Turn off listening
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop();
-      }
-      mediaRecorderRef.current = null;
-      setListening(false);
-    }
-  };
-
   return (
     <div>
-      <h1>GPT Real-Time Audio Demo with Microphone (React)</h1>
       <div>
         <button onClick={
           () => {
@@ -202,21 +132,8 @@ function App() {
           }
         } disabled={sessionInitialized}>Initialize Session and Start WebSocket</button>
       </div>
-
-      <div style={{ marginTop: '20px' }}>
-        {/* <button
-          onMouseDown={handleRecordStart}
-          onMouseUp={handleRecordStop}
-          disabled={!wsStarted}
-          style={{ backgroundColor: isRecording ? '#d9534f' : '#ccc', color: '#fff' }}
-        >
-          {isRecording ? 'Release to Send' : 'Hold to Speak'}
-        </button>
-        <button onClick={handleInterrupt} disabled={!wsStarted}>Interrupt</button> */}
-        <button onClick={toggleListening}>
-          {listening ? 'Stop Listening' : 'Start Listening'}
-        </button>
-      </div>
+      <button onClick={startListening} disabled={listening}>Start Listening</button>
+      <button onClick={stopListening} disabled={!listening}>Stop Listening</button>
     </div>
   );
 }

@@ -91,52 +91,18 @@ wss.on('connection', (ws) => {
     console.log('WebSocket client disconnected.');
   });
 
-  // Optionally, handle messages from frontend clients if needed
-  ws.on('message', (message) => {
-    const msg = JSON.parse(message);
-    if (msg.type === 'input_audio_buffer.append') {
-      console.log("Audio chunk received, size (base64):", msg.audio?.length || 0);
-
-      if (msg.audio) {
-        // 1) forward it to GPT
-        const rawAudio = Buffer.from(msg.audio, 'base64');
-        console.log("Raw audio buffer size:", rawAudio.length);
-
-        convert_audio_and_send(rawAudio, 'input_audio_buffer.append');
-
-        // 2) optionally echo the audio to other clients
-        const wavData = encodeWAV(new Uint8Array(Buffer.from(msg.audio, 'base64')));
-        const wavBase64 = Buffer.from(wavData).toString('base64');
-        broadcastAudioDelta(wavBase64);
-      } else {
-        console.warn("No audio field in message!");
-      }
+  ws.on('message', (rawMsg) => {
+    const msg = JSON.parse(rawMsg);
+    if (msg.type === 'input_audio_buffer.append' && msg.audio) {
+      // Forward directly to GPT
+      const event = {
+        type: 'input_audio_buffer.append',
+        audio: msg.audio, // base64 PCM16
+      };
+      session.modelConn.send(JSON.stringify(event));
     }
   });
-
-  // Example: Test broadcasting a message to all connected clients
-  setInterval(() => {
-    clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'test', message: 'Test message from server' }));
-      }
-    });
-  }, 5000); // Send a test message every 5 seconds
 });
-
-// Example: Broadcast audio_delta messages to all connected clients
-function broadcastAudioDelta(delta) {
-  clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(
-        JSON.stringify({
-          type: 'audio_delta',
-          delta: delta, // base64 audio data
-        })
-      );
-    }
-  });
-}
 
 app.post('/send', async (req, res) => {
   const message = req.body.message || '';
@@ -173,77 +139,6 @@ app.post('/truncate_audio', async (req, res) => {
   session.modelConn.send(JSON.stringify(truncateEvent));
   return res.send("Truncation event sent!");
 });
-
-const convert_audio_and_send = (audioData, event_type, res) => {
-  // Convert audio (webm/opus) to PCM16 mono 24kHz via ffmpeg
-  const ffmpeg = spawn('ffmpeg', [
-    '-f', 'webm',
-    '-i', 'pipe:0',    // read from stdin
-    '-ar', '24000',    // 24kHz
-    '-ac', '1',        // mono
-    '-f', 's16le',     // raw PCM16
-    'pipe:1'           // output to stdout
-  ]);
-
-  let pcmData = Buffer.alloc(0);
-  ffmpeg.stdout.on('data', (chunk) => {
-    pcmData = Buffer.concat([pcmData, chunk]);
-  });
-
-  ffmpeg.stderr.on('data', (chunk) => {
-    // ffmpeg logs to stderr, you can optionally log it
-    console.error('ffmpeg stderr:', chunk.toString());
-  });
-
-  ffmpeg.on('close', (code) => {
-    if (code !== 0) {
-      console.error("FFmpeg error, code:", code);
-      if (res !== undefined) {
-        return res.status(500).send("Error processing audio");
-      }
-    }
-
-    console.log("PCM audio size:", pcmData.length);
-
-    // Base64 encode PCM data
-    const audioB64 = pcmData.toString('base64');
-
-    const eventId = cryptoRandomId(16); // a function to generate short ids
-    const itemId = cryptoRandomId(16); // must be <=32 chars
-
-    const event = {
-      "event_id": eventId,
-      "type": event_type,
-      "previous_item_id": null,
-      "item": {
-        "id": itemId,
-        "type": "message",
-        "role": "user",
-        "content": [
-          {
-            "type": "input_audio",
-            "audio": audioB64
-          }
-        ]
-      }
-    };
-    
-    console.log("Event sent to GPT:", JSON.stringify(event, null, 2));
-    session.modelConn.send(JSON.stringify(event));
-    if (res !== undefined) {
-      return res.json({ status: "ok", event_id: eventId, item_id: itemId });
-    }
-  });
-
-  ffmpeg.stdin.write(audioData);
-  ffmpeg.stdin.end();
-};
-
-const crypto = require('crypto');
-function cryptoRandomId(length) {
-  // Generate a random hex string for ID, truncate to desired length.
-  return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
-}
 
 app.use(express.static(path.join(__dirname, 'public')));
 
