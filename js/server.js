@@ -9,14 +9,13 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 
-const { encodeWAV } = require('./utils');
+const { session, handleModelConnection, handleFrontendConnection, isOpen, jsonSend } = require('./sessionManager');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SESSION_ENDPOINT = "https://api.openai.com/v1/realtime/sessions";
 
 let CLIENT_SECRET = null;
 let SESSION_ID = null;
-let wsApp = null; // Reference to the WebSocket connection
 
 const app = express();
 
@@ -33,52 +32,6 @@ app.use(express.json());
 
 // Set up multer for handling multipart/form-data (audio uploads)
 const upload = multer({ storage: multer.memoryStorage() });
-
-function initializeOpenAIWebSocket() {
-  if (!CLIENT_SECRET) {
-    throw new Error("Session not initialized. Call /init_session first.");
-  }
-
-  const realtimeUrl = `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17`;
-  const ws = new WebSocket(realtimeUrl, {
-    headers: {
-      'Authorization': `Bearer ${CLIENT_SECRET}`,
-      'OpenAI-Beta': 'realtime=v1'
-    }
-  });
-
-  ws.on('open', () => {
-    console.log('Connected to OpenAI server.');
-  });
-
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      console.log("Received event:", JSON.stringify(data, null, 2));
-
-      if (data.type === "response.audio.delta") {
-        //encodeWAV(pcmData, sampleRate = 24000, numChannels = 1)
-        const wavData = encodeWAV(new Uint8Array(Buffer.from(data.delta, 'base64')));
-        const wavBase64 = Buffer.from(wavData).toString('base64');
-        clients.forEach((client) => {
-          client.send(JSON.stringify({
-            type: "audio_delta",
-            //delta: data.delta, // Send the base64 audio
-            delta: wavBase64,
-          }));
-        });
-      }
-    } catch (err) {
-      console.error("Failed to parse message:", message, err);
-    }
-  });
-
-  ws.on('error', (err) => {
-    console.error('WebSocket error:', err);
-  });
-
-  return ws;
-}
 
 app.post('/init_session', async (req, res) => {
   console.log("Session initializing...");
@@ -118,12 +71,8 @@ app.post('/init_session', async (req, res) => {
 });
 
 app.get('/start', (req, res) => {
-  if (wsApp) {
-    return res.status(400).send("WebSocket already initialized.");
-  }
-
   try {
-    wsApp = initializeOpenAIWebSocket();
+    handleModelConnection();
     res.send("WebSocket connection started!");
   } catch (err) {
     console.error(err.message);
@@ -135,23 +84,41 @@ wss.on('connection', (ws) => {
   console.log('WebSocket client connected.');
   clients.push(ws);
 
+  handleFrontendConnection(ws);
+
   ws.on('close', () => {
     const index = clients.indexOf(ws);
     if (index !== -1) clients.splice(index, 1);
     console.log('WebSocket client disconnected.');
   });
 
-  // Optionally, handle messages from frontend clients if needed
-  ws.on('message', (message) => {
-    console.log('Message from frontend:', message);
+  ws.on('message', (rawMsg) => {
+    try {
+      const msg = JSON.parse(rawMsg);
+      if (msg.type === 'input_audio_buffer.append' && msg.audio) {
+        // Forward audio input to GPT
+        const event = {
+          type: 'input_audio_buffer.append',
+          audio: msg.audio, // base64 PCM16
+        };
+        session.modelConn.send(JSON.stringify(event));
+      }
+    } catch (err) {
+      console.error('Error processing client message:', err);
+    }
   });
+
+  // Example: Send test message to clients every 5 seconds
+  setInterval(() => {
+    clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'test', message: 'Hello from server!' }));
+      }
+    });
+  }, 5000); // Optional for debugging
 });
 
 app.post('/send', async (req, res) => {
-  if (!wsApp || wsApp.readyState !== WebSocket.OPEN) {
-    return res.status(503).send("WebSocket not connected.");
-  }
-
   const message = req.body.message || '';
   if (!message) {
     return res.status(400).send("No message provided.");
@@ -165,95 +132,27 @@ app.post('/send', async (req, res) => {
     }
   };
 
-  wsApp.send(JSON.stringify(event));
+  if (!session.modelConn || session.modelConn.readyState !== WebSocket.OPEN) {
+    return res.status(503).send("WebSocket not connected.");
+  }
+
+  session.modelConn.send(JSON.stringify(event));
   return res.send("Message sent!");
 });
 
 app.post('/truncate_audio', async (req, res) => {
-  if (!wsApp || wsApp.readyState !== WebSocket.OPEN) {
-    return res.status(503).send("WebSocket not connected.");
-  }
-
   const truncateEvent = req.body;
   if (!truncateEvent || truncateEvent.type !== 'conversation.item.truncate') {
     return res.status(400).send("Invalid event type.");
   }
 
-  wsApp.send(JSON.stringify(truncateEvent));
-  return res.send("Truncation event sent!");
-});
-
-app.post('/conversation_item_create', upload.single('audio'), async (req, res) => {
-  if (!wsApp || wsApp.readyState !== WebSocket.OPEN) {
+  if (!session.modelConn || session.modelConn.readyState !== WebSocket.OPEN) {
     return res.status(503).send("WebSocket not connected.");
   }
 
-  if (!req.file) {
-    return res.status(400).send("No audio file provided.");
-  }
-
-  const audioData = req.file.buffer;
-
-  // Convert audio (webm/opus) to PCM16 mono 24kHz via ffmpeg
-  const ffmpeg = spawn('ffmpeg', [
-    '-i', 'pipe:0',    // read from stdin
-    '-ar', '24000',    // 24kHz
-    '-ac', '1',        // mono
-    '-f', 's16le',     // raw PCM16
-    'pipe:1'           // output to stdout
-  ]);
-
-  let pcmData = Buffer.alloc(0);
-  ffmpeg.stdout.on('data', (chunk) => {
-    pcmData = Buffer.concat([pcmData, chunk]);
-  });
-
-  ffmpeg.stderr.on('data', (chunk) => {
-    // ffmpeg logs to stderr, you can optionally log it
-    // console.error('ffmpeg stderr:', chunk.toString());
-  });
-
-  ffmpeg.on('close', (code) => {
-    if (code !== 0) {
-      return res.status(500).send("Error processing audio");
-    }
-
-    // Base64 encode PCM data
-    const audioB64 = pcmData.toString('base64');
-
-    const eventId = cryptoRandomId(16); // a function to generate short ids
-    const itemId = cryptoRandomId(16); // must be <=32 chars
-
-    const event = {
-      "event_id": eventId,
-      "type": "conversation.item.create",
-      "previous_item_id": null,
-      "item": {
-        "id": itemId,
-        "type": "message",
-        "role": "user",
-        "content": [
-          {
-            "type": "input_audio",
-            "audio": audioB64
-          }
-        ]
-      }
-    };
-
-    wsApp.send(JSON.stringify(event));
-    return res.json({ status: "ok", event_id: eventId, item_id: itemId });
-  });
-
-  ffmpeg.stdin.write(audioData);
-  ffmpeg.stdin.end();
+  session.modelConn.send(JSON.stringify(truncateEvent));
+  return res.send("Truncation event sent!");
 });
-
-const crypto = require('crypto');
-function cryptoRandomId(length) {
-  // Generate a random hex string for ID, truncate to desired length.
-  return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
-}
 
 app.use(express.static(path.join(__dirname, 'public')));
 
