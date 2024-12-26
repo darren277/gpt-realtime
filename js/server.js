@@ -19,7 +19,6 @@ const SESSION_ENDPOINT = "https://api.openai.com/v1/realtime/sessions";
 
 let CLIENT_SECRET = null;
 let SESSION_ID = null;
-let wsApp = null; // Reference to the WebSocket connection
 
 const app = express();
 
@@ -36,52 +35,6 @@ app.use(express.json());
 
 // Set up multer for handling multipart/form-data (audio uploads)
 const upload = multer({ storage: multer.memoryStorage() });
-
-function initializeOpenAIWebSocketOld() {
-  if (!CLIENT_SECRET) {
-    throw new Error("Session not initialized. Call /init_session first.");
-  }
-
-  const realtimeUrl = `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17`;
-  const ws = new WebSocket(realtimeUrl, {
-    headers: {
-      'Authorization': `Bearer ${CLIENT_SECRET}`,
-      'OpenAI-Beta': 'realtime=v1'
-    }
-  });
-
-  ws.on('open', () => {
-    console.log('Connected to OpenAI server.');
-  });
-
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      console.log("Received event:", JSON.stringify(data, null, 2));
-
-      if (data.type === "response.audio.delta") {
-        //encodeWAV(pcmData, sampleRate = 24000, numChannels = 1)
-        const wavData = encodeWAV(new Uint8Array(Buffer.from(data.delta, 'base64')));
-        const wavBase64 = Buffer.from(wavData).toString('base64');
-        clients.forEach((client) => {
-          client.send(JSON.stringify({
-            type: "audio_delta",
-            //delta: data.delta, // Send the base64 audio
-            delta: wavBase64,
-          }));
-        });
-      }
-    } catch (err) {
-      console.error("Failed to parse message:", message, err);
-    }
-  });
-
-  ws.on('error', (err) => {
-    console.error('WebSocket error:', err);
-  });
-
-  return ws;
-}
 
 app.post('/init_session', async (req, res) => {
   console.log("Session initializing...");
@@ -121,12 +74,7 @@ app.post('/init_session', async (req, res) => {
 });
 
 app.get('/start', (req, res) => {
-  // if (wsApp) {
-  //   return res.status(400).send("WebSocket already initialized.");
-  // }
-
   try {
-    //wsApp = initializeOpenAIWebSocket();
     handleModelConnection();
     res.send("WebSocket connection started!");
   } catch (err) {
@@ -195,10 +143,6 @@ function broadcastAudioDelta(delta) {
 }
 
 app.post('/send', async (req, res) => {
-  if (!wsApp || wsApp.readyState !== WebSocket.OPEN) {
-    return res.status(503).send("WebSocket not connected.");
-  }
-
   const message = req.body.message || '';
   if (!message) {
     return res.status(400).send("No message provided.");
@@ -212,29 +156,29 @@ app.post('/send', async (req, res) => {
     }
   };
 
-  wsApp.send(JSON.stringify(event));
+  if (!session.modelConn || session.modelConn.readyState !== WebSocket.OPEN) {
+    return res.status(503).send("WebSocket not connected.");
+  }
+
+  session.modelConn.send(JSON.stringify(event));
   return res.send("Message sent!");
 });
 
 app.post('/truncate_audio', async (req, res) => {
-  if (!wsApp || wsApp.readyState !== WebSocket.OPEN) {
-    return res.status(503).send("WebSocket not connected.");
-  }
-
   const truncateEvent = req.body;
   if (!truncateEvent || truncateEvent.type !== 'conversation.item.truncate') {
     return res.status(400).send("Invalid event type.");
   }
 
-  wsApp.send(JSON.stringify(truncateEvent));
+  if (!session.modelConn || session.modelConn.readyState !== WebSocket.OPEN) {
+    return res.status(503).send("WebSocket not connected.");
+  }
+
+  session.modelConn.send(JSON.stringify(truncateEvent));
   return res.send("Truncation event sent!");
 });
 
 app.post('/conversation_item_create', upload.single('audio'), async (req, res) => {
-  if (!wsApp || wsApp.readyState !== WebSocket.OPEN) {
-    return res.status(503).send("WebSocket not connected.");
-  }
-
   if (!req.file) {
     return res.status(400).send("No audio file provided.");
   }
@@ -291,8 +235,7 @@ const convert_audio_and_send = (audioData, event_type, res) => {
         ]
       }
     };
-
-    //wsApp.send(JSON.stringify(event));
+    
     session.modelConn.send(JSON.stringify(event));
     if (res !== undefined) {
       return res.json({ status: "ok", event_id: eventId, item_id: itemId });
