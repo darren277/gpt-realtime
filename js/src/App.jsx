@@ -11,6 +11,15 @@ function App() {
   const playAudioDelta = async (base64Audio) => {
     console.log("!!!!!!!!!!!!!!!!!!!!!!!!! Playing audio delta:", base64Audio.length, "bytes", typeof base64Audio);
     try {
+      if (!audioContextRef.current) {
+        throw new Error("AudioContext is not initialized.");
+      }
+
+      if (audioContextRef.current.state === 'suspended') {
+        console.log("Resuming AudioContext...");
+        await audioContextRef.current.resume();
+      }      
+
       const audioContext = audioContextRef.current;
       const audioBuffer = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
 
@@ -27,6 +36,13 @@ function App() {
   };
 
   useEffect(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      console.log("AudioContext initialized:", audioContextRef.current);
+    }
+  }, []);  
+
+  useEffect(() => {
     // Create WebSocket
     const ws = new WebSocket('ws://127.0.0.1:5660');
     wsRef.current = ws;
@@ -34,7 +50,7 @@ function App() {
     ws.onopen = () => console.log('WS open');
     ws.onmessage = async (e) => {
       console.log('WS message:', e);
-      
+
       // e.g. handle GPT audio deltas
       const data = JSON.parse(e.data);
       if (data.type === "audio_delta") {
