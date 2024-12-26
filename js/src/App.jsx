@@ -150,12 +150,15 @@ function App() {
         const mediaRecorder = new MediaRecorder(stream);
 
         mediaRecorder.ondataavailable = (e) => {
+          // Log out base64Data.length (or e.data.size) to ensure it’s not zero. If you see it’s zero, you can choose to skip sending an event at all.
+          console.log('Audio chunk size:', e.data.size);
           if (e.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
             const reader = new FileReader();
             reader.onload = () => {
               // Convert the raw audio file into base64
               const base64Data = btoa(new Uint8Array(reader.result).reduce((data, byte) => data + String.fromCharCode(byte), ''));
               // Send to the server -> the server relays to GPT via input_audio_buffer.append
+              console.log("Base64 audio data length:", base64Data.length);
               const msg = {
                 type: 'input_audio_buffer.append', 
                 audio: base64Data 

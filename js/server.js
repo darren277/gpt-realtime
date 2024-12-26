@@ -93,27 +93,25 @@ wss.on('connection', (ws) => {
 
   // Optionally, handle messages from frontend clients if needed
   ws.on('message', (message) => {
-    console.log('Message from frontend:', message);
-
     const msg = JSON.parse(message);
-    console.log("Received message", msg);
     if (msg.type === 'input_audio_buffer.append') {
-      // Forward to GPT modelConn
-      if (isOpen(session.modelConn)) {
-        // jsonSend(session.modelConn, {
-        //   type: 'input_audio_buffer.append',
-        //   audio: msg.audio,  // base64 PCM or whichever format
-        // });
-        if (msg.audio) {
-          const rawAudio = Buffer.from(msg.audio, 'base64'); // Decode base64 audio from front end
-          convert_audio_and_send(rawAudio, 'input_audio_buffer.append');
-        }
+      console.log("Audio chunk received, size (base64):", msg.audio?.length || 0);
+
+      if (msg.audio) {
+        // 1) forward it to GPT
+        const rawAudio = Buffer.from(msg.audio, 'base64');
+        console.log("Raw audio buffer size:", rawAudio.length);
+
+        convert_audio_and_send(rawAudio, 'input_audio_buffer.append');
+
+        // 2) optionally echo the audio to other clients
+        const wavData = encodeWAV(new Uint8Array(Buffer.from(msg.audio, 'base64')));
+        const wavBase64 = Buffer.from(wavData).toString('base64');
+        broadcastAudioDelta(wavBase64);
+      } else {
+        console.warn("No audio field in message!");
       }
     }
-
-    const wavData = encodeWAV(new Uint8Array(Buffer.from(msg.audio, 'base64')));
-    const wavBase64 = Buffer.from(wavData).toString('base64');
-    broadcastAudioDelta(wavBase64);
   });
 
   // Example: Test broadcasting a message to all connected clients
@@ -179,6 +177,7 @@ app.post('/truncate_audio', async (req, res) => {
 const convert_audio_and_send = (audioData, event_type, res) => {
   // Convert audio (webm/opus) to PCM16 mono 24kHz via ffmpeg
   const ffmpeg = spawn('ffmpeg', [
+    '-f', 'webm',
     '-i', 'pipe:0',    // read from stdin
     '-ar', '24000',    // 24kHz
     '-ac', '1',        // mono
@@ -193,15 +192,18 @@ const convert_audio_and_send = (audioData, event_type, res) => {
 
   ffmpeg.stderr.on('data', (chunk) => {
     // ffmpeg logs to stderr, you can optionally log it
-    // console.error('ffmpeg stderr:', chunk.toString());
+    console.error('ffmpeg stderr:', chunk.toString());
   });
 
   ffmpeg.on('close', (code) => {
     if (code !== 0) {
+      console.error("FFmpeg error, code:", code);
       if (res !== undefined) {
         return res.status(500).send("Error processing audio");
       }
     }
+
+    console.log("PCM audio size:", pcmData.length);
 
     // Base64 encode PCM data
     const audioB64 = pcmData.toString('base64');
@@ -226,6 +228,7 @@ const convert_audio_and_send = (audioData, event_type, res) => {
       }
     };
     
+    console.log("Event sent to GPT:", JSON.stringify(event, null, 2));
     session.modelConn.send(JSON.stringify(event));
     if (res !== undefined) {
       return res.json({ status: "ok", event_id: eventId, item_id: itemId });

@@ -111,9 +111,6 @@ function handleModelMessage(data) {
 
   console.log("?????????????? Received event from model:", event);
 
-  // Always forward events to the frontend
-  jsonSend(session.frontendConn, event);
-
   // Example function call scenario:
   if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
     handleFunctionCall(event.item);
@@ -247,16 +244,9 @@ function jsonSend(ws, obj) {
     messageQueue.push(obj);
     return;
   }
-  console.log("Sending to ws:", isOpen(ws), obj);
   if (!isOpen(ws)) return;
+  console.log("Sending to ws:", isOpen(ws), obj);
   ws.send(JSON.stringify(obj));
-
-  // Send any queued messages
-//   while (messageQueue.length > 0) {
-//     const queuedMessage = messageQueue.shift();
-//     console.log("Sending queued message:", queuedMessage);
-//     ws.send(JSON.stringify(queuedMessage));
-//   }
 }
 
 // Flush queued messages on WebSocket open
