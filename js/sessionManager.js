@@ -1,5 +1,6 @@
 const { WebSocket } = require("ws");
 //import functions from "./functionHandlers";
+const { encodeWAV } = require('./utils');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
@@ -103,6 +104,70 @@ function handleModelConnection() {
       });
   }
 
+function handleFrontendConnection(ws) {
+    if (session.frontendConn) {
+      console.warn('Frontend connection already exists. Cleaning up...');
+      session.frontendConn.close();
+    }
+  
+    session.frontendConn = ws;
+  
+    ws.on('message', (rawMsg) => {
+      handleFrontendMessage(rawMsg);
+    });
+  
+    ws.on('close', () => {
+      console.log('Frontend WebSocket closed.');
+      session.frontendConn = undefined;
+    });
+  
+    ws.on('error', (err) => {
+      console.error('Frontend WebSocket error:', err);
+    });
+}
+
+function handleFrontendMessage(data) {
+    const event = parseMessage(data);
+    if (!event) return;
+  
+    // if (msg.type === 'input_audio_buffer.append') {
+    //   console.log('Received audio chunk from frontend:', msg.audio?.length || 0, 'bytes');
+  
+    //   // Forward to GPT
+    //   if (isOpen(session.modelConn)) {
+    //     jsonSend(session.modelConn, {
+    //       type: 'input_audio_buffer.append',
+    //       audio: msg.audio,
+    //     }, 'handleFrontendMessage');
+    //   } else {
+    //     console.warn('GPT connection not open. Could not forward audio.');
+    //   }
+    // }
+    // Handle other frontend messages as needed
+    switch (event.type) {
+        case "response.audio.delta": {
+            // If your session has some concept of "when the response started," track it here:
+            if (session.responseStartTimestamp === undefined) {
+              session.responseStartTimestamp = session.latestMediaTimestamp || 0;
+            }
+            if (event.item_id) {
+              session.lastAssistantItem = event.item_id;
+            }
+    
+            // Forward the base64 audio to the frontend:
+            // This is base64 PCM or WAV, depending on your session config
+
+            const pcmData = Buffer.from(event.delta, 'base64'); // Decode base64 to raw PCM
+            const wavData = encodeWAV(pcmData);
+
+            fs.writeFileSync('output.wav', wavData);
+
+            jsonSend(session.frontendConn, {type: "audio_delta", delta: Buffer.from(wavData).toString('base64'), item_id: event.item_id}, 'FRONTEND_handleFrontendMessage_response.audio.delta');
+            break;
+          }
+    }
+  }
+
 function handleModelMessage(data) {
   const event = parseMessage(data);
   if (!event) return;
@@ -140,20 +205,14 @@ function handleModelMessage(data) {
           session.lastAssistantItem = event.item_id;
         }
 
-        // clients.forEach((client) => {
-        //     if (isOpen(session.frontendConn) && client.readyState === WebSocket.OPEN) {
-        //       // base64 PCM16 audio
-        //       client.send(JSON.stringify({type: 'audio_delta', delta: gptEvent.delta}));
-        //     } else {
-        //         console.warn('Client not connected. Message not sent:', gptEvent);
-        //     }
-        // });
-
-        // OR???
-
         // Forward the base64 audio to the frontend:
         // This is base64 PCM or WAV, depending on your session config
-        jsonSend(session.frontendConn, {type: "audio_delta", delta: event.delta, item_id: event.item_id}, 'handleModelMessage_response.audio.delta');
+        const pcmData = Buffer.from(event.delta, 'base64'); // Decode base64 to raw PCM
+        const wavData = encodeWAV(pcmData);
+
+        //fs.writeFileSync('output.wav', wavData);
+
+        jsonSend(session.frontendConn, {type: "audio_delta", delta: Buffer.from(wavData).toString('base64'), item_id: event.item_id}, 'FRONTEND_handleModelMessage_response.audio.delta');
         break;
       }
     
@@ -165,20 +224,9 @@ function handleModelMessage(data) {
 
         // Example: send audio deltas to the client
         if (event.audio) {
-          // clients.forEach((client) => {
-          //   if (isOpen(client)) {
-          //     // base64 PCM16 audio
-          //     client.send(JSON.stringify({type: 'audio_delta', delta: event.audio}));
-          //   } else {
-          //     console.warn('Client not connected. Message not sent:', event);
-          //   }
-          // });
-
-          // OR???
-
           // Forward the base64 audio to the frontend:
           // This is base64 PCM or WAV, depending on your session config
-          jsonSend(session.frontendConn, {type: "audio_delta", delta: event.audio, item_id: event.item_id}, 'handleModelMessage_response.content_part.done');
+          jsonSend(session.frontendConn, {type: "audio_delta", delta: event.audio, item_id: event.item_id}, 'FRONTEND_handleModelMessage_response.content_part.done');
         }
     }
 
@@ -274,13 +322,11 @@ function parseMessage(data) {
 let messageQueue = [];
 
 function jsonSend(ws, obj, source) {
-    console.log("JSON SEND SOURCE:", source);
-    console.log("WS", ws);
-    console.log("WS state", ws.readyState);
-    console.log("isOpen", isOpen(ws));
-    console.log("obj", obj);
+    console.log("JSON SEND SOURCE:", source, "isOpen", isOpen(ws), "WS state", ws.readyState);
+    console.debug("WS", ws);
+    console.debug("obj", obj);
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    console.warn("WebSocket not open. Message not sent:", obj);
+    console.warn(`[${source}] WebSocket not open. Message not sent:`, obj);
     //messageQueue.push(obj);
     return;
   }
@@ -306,6 +352,7 @@ function isOpen(ws) {
 module.exports = {
     session,
     handleModelConnection,
+    handleFrontendConnection,
     closeAllConnections,
     jsonSend,
     isOpen,

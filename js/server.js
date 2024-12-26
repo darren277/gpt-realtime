@@ -9,8 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 
-const { encodeWAV } = require('./utils');
-const { session, handleModelConnection, isOpen, jsonSend } = require('./sessionManager');
+const { session, handleModelConnection, handleFrontendConnection, isOpen, jsonSend } = require('./sessionManager');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SESSION_ENDPOINT = "https://api.openai.com/v1/realtime/sessions";
@@ -84,6 +83,8 @@ app.get('/start', (req, res) => {
 wss.on('connection', (ws) => {
   console.log('WebSocket client connected.');
   clients.push(ws);
+
+  handleFrontendConnection(ws);
 
   ws.on('close', () => {
     const index = clients.indexOf(ws);
