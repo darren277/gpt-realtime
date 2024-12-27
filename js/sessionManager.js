@@ -1,6 +1,7 @@
 const { WebSocket } = require("ws");
 //import functions from "./functionHandlers";
 const { encodeWAV } = require('./utils');
+const { functions } = require('./functionHandlers');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
@@ -29,7 +30,7 @@ let session = {
 };
 
 async function handleFunctionCall(item) {
-  console.log("Handling function call:", item);
+  console.log("!!!!!!!!!!!!!!!!! Handling function call:", JSON.stringify(item));
   const fnDef = functions.find((f) => f.schema.name === item.name);
   if (!fnDef) {
     throw new Error(`No handler found for function: ${item.name}`);
@@ -57,6 +58,8 @@ async function handleFunctionCall(item) {
 }
 
 function handleModelConnection() {
+    const tool_schemas = functions.map((f) => f.schema);
+    
     // If modelConn is already open, skip
     if (isOpen(session.modelConn)) return;
   
@@ -83,6 +86,7 @@ function handleModelConnection() {
             //output_audio_format: "g711_ulaw",
             input_audio_format: "pcm16",
             output_audio_format: "pcm16",
+            tools: tool_schemas,
         },
       }, 'handleModelConnection');
       flushQueue(session.modelConn);
