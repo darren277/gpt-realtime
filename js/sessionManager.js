@@ -99,7 +99,12 @@ function handleModelConnection() {
     
       session.modelConn.on("message", (data) => {
         const event = JSON.parse(data);
-        console.log("Received event from GPT:", event);
+        // convert event to loggable event (replace event.delta with event.delta.length)
+        let loggableEvent = { ...event };
+        if (loggableEvent.delta) {
+          loggableEvent.delta = loggableEvent.delta.length;
+        }
+        console.log("Received event from GPT:", loggableEvent);
         handleModelMessage(data);
       });
   }
@@ -172,7 +177,14 @@ function handleModelMessage(data) {
   const event = parseMessage(data);
   if (!event) return;
 
-  console.log("?????????????? Received event from model:", event);
+  
+  // convert event to loggable event (replace event.delta with event.delta.length)
+  let loggableEvent = { ...event };
+  if (loggableEvent.delta) {
+    loggableEvent.delta = loggableEvent.delta.length;
+  }
+
+  console.log("?????????????? Received event from model:", loggableEvent);
 
   // Example function call scenario:
   if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
@@ -323,15 +335,20 @@ let messageQueue = [];
 
 function jsonSend(ws, obj, source) {
     console.log("JSON SEND SOURCE:", source, "isOpen", isOpen(ws), "WS state", ws.readyState);
-    console.debug("WS", ws);
-    console.debug("obj", obj);
+    //console.debug("WS", ws);
+    //console.debug("obj", obj);
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     console.warn(`[${source}] WebSocket not open. Message not sent:`, obj);
     //messageQueue.push(obj);
     return;
   }
   if (!isOpen(ws)) return;
-  console.log("Sending to ws:", isOpen(ws), obj);
+  // convert obj to loggable obj (replace obj.delta with obj.delta.length)
+  let loggableObj = { ...obj };
+  if (loggableObj.delta) {
+    loggableObj.delta = loggableObj.delta.length;
+  }
+  console.log("Sending to ws:", isOpen(ws), loggableObj);
   ws.send(JSON.stringify(obj));
 }
 
