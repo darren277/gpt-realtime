@@ -76,7 +76,7 @@ function handleModelConnection() {
         type: "session.update",
         session: {
             modalities: ["text", "audio"],
-            turn_detection: { type: "server_vad" },
+            turn_detection: { type: "server_vad", create_response: true },
             voice: "ash",
             input_audio_transcription: { model: "whisper-1" },
             //input_audio_format: "g711_ulaw",
@@ -99,7 +99,12 @@ function handleModelConnection() {
     
       session.modelConn.on("message", (data) => {
         const event = JSON.parse(data);
-        console.log("Received event from GPT:", event);
+        // convert event to loggable event (replace event.delta with event.delta.length)
+        let loggableEvent = { ...event };
+        if (loggableEvent.delta) {
+          loggableEvent.delta = loggableEvent.delta.length;
+        }
+        console.log("Received event from GPT:", JSON.stringify(loggableEvent));
         handleModelMessage(data);
       });
   }
@@ -172,7 +177,14 @@ function handleModelMessage(data) {
   const event = parseMessage(data);
   if (!event) return;
 
-  console.log("?????????????? Received event from model:", event);
+  
+  // convert event to loggable event (replace event.delta with event.delta.length)
+  let loggableEvent = { ...event };
+  if (loggableEvent.delta) {
+    loggableEvent.delta = loggableEvent.delta.length;
+  }
+
+  console.log("?????????????? Received event from model:", JSON.stringify(loggableEvent));
 
   // Example function call scenario:
   if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
@@ -181,7 +193,9 @@ function handleModelMessage(data) {
 
   switch (event.type) {
     case "input_audio_buffer.speech_started":
+      console.log("User speech started again—interrupt GPT's audio.");
       handleTruncation();
+      jsonSend(session.modelConn, { type: "response.create" }); // Prompt GPT to respond
       break;
     
       case "input_audio_buffer.append": {
@@ -220,7 +234,7 @@ function handleModelMessage(data) {
         // Example: handle content_part.done event
         // This event is sent for each part of a multipart response (e.g. a long text response or a response with multiple audio segments)
         // You can use this event to stream the response to the client or to perform other actions based on the response parts
-        console.log("Received response content part:", event);
+        console.log("Received response content part:", JSON.stringify(event));
 
         // Example: send audio deltas to the client
         if (event.audio) {
@@ -257,22 +271,27 @@ function handleModelMessage(data) {
 }
 
 function handleTruncation() {
-  if (!session.lastAssistantItem || session.responseStartTimestamp === undefined) {
+  if (!session.lastAssistantItem) {
     return;
   }
 
-  const elapsedMs =
-    (session.latestMediaTimestamp || 0) - (session.responseStartTimestamp || 0);
-  const audio_end_ms = elapsedMs > 0 ? elapsedMs : 0;
+  //const elapsedMs = (session.latestMediaTimestamp || 0) - (session.responseStartTimestamp || 0);
+  //const audio_end_ms = elapsedMs > 0 ? elapsedMs : 0;
+  //const audio_end_ms = 5000;
+  const audio_end_ms = 0;
 
   // Send conversation.item.truncate to GPT
   if (isOpen(session.modelConn)) {
+    console.log(`[${Date.now()}] Received audio on backend, forwarding to GPT.`);
+    
     jsonSend(session.modelConn, {
       type: "conversation.item.truncate",
       item_id: session.lastAssistantItem,
       content_index: 0,
       audio_end_ms,
     }, 'handleTruncation');
+  } else {
+    console.warn("GPT connection not open. Could not truncate audio.");
   }
 
   // Reset session audio tracking
@@ -323,15 +342,20 @@ let messageQueue = [];
 
 function jsonSend(ws, obj, source) {
     console.log("JSON SEND SOURCE:", source, "isOpen", isOpen(ws), "WS state", ws.readyState);
-    console.debug("WS", ws);
-    console.debug("obj", obj);
+    //console.debug("WS", ws);
+    //console.debug("obj", obj);
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     console.warn(`[${source}] WebSocket not open. Message not sent:`, obj);
     //messageQueue.push(obj);
     return;
   }
   if (!isOpen(ws)) return;
-  console.log("Sending to ws:", isOpen(ws), obj);
+  // convert obj to loggable obj (replace obj.delta with obj.delta.length)
+  let loggableObj = { ...obj };
+  if (loggableObj.delta) {
+    loggableObj.delta = loggableObj.delta.length;
+  }
+  console.log("Sending to ws:", isOpen(ws), JSON.stringify(loggableObj));
   ws.send(JSON.stringify(obj));
 }
 
