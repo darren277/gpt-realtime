@@ -25,3 +25,7 @@ It still needs some tweaking to get the live prompts working right as the last t
 ## JavaScript version
 
 There is now a Node/Express/React version of the same application. It has the same functionality as the Python version currently, only, for whatever reason, the first test case worked flawlessly without having to make any adjustments to the intercepted prompts. Perhaps my first test case for the Python version was just too trivial to expect any results (I simply uttered "Testing speech to text. Testing speech to text." - not much of a prompt, afterall).
+
+### Tool Calls
+
+...
