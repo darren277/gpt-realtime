@@ -104,7 +104,7 @@ function handleModelConnection() {
         if (loggableEvent.delta) {
           loggableEvent.delta = loggableEvent.delta.length;
         }
-        console.log("Received event from GPT:", loggableEvent);
+        console.log("Received event from GPT:", JSON.stringify(loggableEvent));
         handleModelMessage(data);
       });
   }
@@ -184,7 +184,7 @@ function handleModelMessage(data) {
     loggableEvent.delta = loggableEvent.delta.length;
   }
 
-  console.log("?????????????? Received event from model:", loggableEvent);
+  console.log("?????????????? Received event from model:", JSON.stringify(loggableEvent));
 
   // Example function call scenario:
   if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
@@ -233,7 +233,7 @@ function handleModelMessage(data) {
         // Example: handle content_part.done event
         // This event is sent for each part of a multipart response (e.g. a long text response or a response with multiple audio segments)
         // You can use this event to stream the response to the client or to perform other actions based on the response parts
-        console.log("Received response content part:", event);
+        console.log("Received response content part:", JSON.stringify(event));
 
         // Example: send audio deltas to the client
         if (event.audio) {
@@ -351,7 +351,7 @@ function jsonSend(ws, obj, source) {
   if (loggableObj.delta) {
     loggableObj.delta = loggableObj.delta.length;
   }
-  console.log("Sending to ws:", isOpen(ws), loggableObj);
+  console.log("Sending to ws:", isOpen(ws), JSON.stringify(loggableObj));
   ws.send(JSON.stringify(obj));
 }
 
