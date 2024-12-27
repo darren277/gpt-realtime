@@ -280,6 +280,8 @@ function handleTruncation() {
 
   // Send conversation.item.truncate to GPT
   if (isOpen(session.modelConn)) {
+    console.log(`[${Date.now()}] Received audio on backend, forwarding to GPT.`);
+    
     jsonSend(session.modelConn, {
       type: "conversation.item.truncate",
       item_id: session.lastAssistantItem,

@@ -107,6 +107,9 @@ function App() {
 
       // e.g. handle GPT audio deltas
       const data = JSON.parse(e.data);
+      
+      console.log(`[${Date.now()}] Frontend received event:`, data);
+
       if (data.type === "audio_delta") {
         console.log("Received audio delta:", data.delta.length, "bytes");
         await playAudioDelta(data.delta);
@@ -143,6 +146,8 @@ function App() {
       const base64Data = bufferToBase64(int16);
       
       if (wsRef.current?.readyState === WebSocket.OPEN) {
+        const timestamp = Date.now();
+        console.log(`[${timestamp}] Sending audio chunk to server.`);
         wsRef.current.send(
           JSON.stringify({ type: 'input_audio_buffer.append', audio: base64Data })
         );
