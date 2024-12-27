@@ -76,7 +76,7 @@ function handleModelConnection() {
         type: "session.update",
         session: {
             modalities: ["text", "audio"],
-            turn_detection: { type: "server_vad" },
+            turn_detection: { type: "server_vad", create_response: true },
             voice: "ash",
             input_audio_transcription: { model: "whisper-1" },
             //input_audio_format: "g711_ulaw",
@@ -193,6 +193,7 @@ function handleModelMessage(data) {
 
   switch (event.type) {
     case "input_audio_buffer.speech_started":
+      console.log("User speech started again—interrupt GPT's audio.");
       handleTruncation();
       break;
     
@@ -269,13 +270,13 @@ function handleModelMessage(data) {
 }
 
 function handleTruncation() {
-  if (!session.lastAssistantItem || session.responseStartTimestamp === undefined) {
+  if (!session.lastAssistantItem) {
     return;
   }
 
-  const elapsedMs =
-    (session.latestMediaTimestamp || 0) - (session.responseStartTimestamp || 0);
-  const audio_end_ms = elapsedMs > 0 ? elapsedMs : 0;
+  //const elapsedMs = (session.latestMediaTimestamp || 0) - (session.responseStartTimestamp || 0);
+  //const audio_end_ms = elapsedMs > 0 ? elapsedMs : 0;
+  const audio_end_ms = 5000;
 
   // Send conversation.item.truncate to GPT
   if (isOpen(session.modelConn)) {
@@ -285,6 +286,8 @@ function handleTruncation() {
       content_index: 0,
       audio_end_ms,
     }, 'handleTruncation');
+  } else {
+    console.warn("GPT connection not open. Could not truncate audio.");
   }
 
   // Reset session audio tracking
