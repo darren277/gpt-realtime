@@ -195,6 +195,7 @@ function handleModelMessage(data) {
     case "input_audio_buffer.speech_started":
       console.log("User speech started again—interrupt GPT's audio.");
       handleTruncation();
+      jsonSend(session.modelConn, { type: "response.create" }); // Prompt GPT to respond
       break;
     
       case "input_audio_buffer.append": {
@@ -276,7 +277,8 @@ function handleTruncation() {
 
   //const elapsedMs = (session.latestMediaTimestamp || 0) - (session.responseStartTimestamp || 0);
   //const audio_end_ms = elapsedMs > 0 ? elapsedMs : 0;
-  const audio_end_ms = 5000;
+  //const audio_end_ms = 5000;
+  const audio_end_ms = 0;
 
   // Send conversation.item.truncate to GPT
   if (isOpen(session.modelConn)) {

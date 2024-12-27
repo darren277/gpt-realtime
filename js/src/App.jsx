@@ -71,7 +71,13 @@ function App() {
       if (audioContextRef.current.state === 'suspended') {
         console.log("Resuming AudioContext...");
         await audioContextRef.current.resume();
-      }      
+      }
+
+      // Clear playbackQueue on truncation
+      if (playbackQueue.length > 0 && isPlaying) {
+        //playbackQueue.length = 0; // Clear the queue
+        //isPlaying = false;
+      }
 
       const audioContext = audioContextRef.current;
       const audioBuffer = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
@@ -103,8 +109,6 @@ function App() {
 
     ws.onopen = () => console.log('WS open');
     ws.onmessage = async (e) => {
-      console.log('WS message:', e);
-
       // e.g. handle GPT audio deltas
       const data = JSON.parse(e.data);
       
@@ -113,6 +117,12 @@ function App() {
       if (data.type === "audio_delta") {
         console.log("Received audio delta:", data.delta.length, "bytes");
         await playAudioDelta(data.delta);
+      }
+
+      if (data.type === "conversation.item.truncated") {
+        console.log("Truncation confirmed. Clearing playback queue.");
+        playbackQueue.length = 0; // Clear the queue
+        isPlaying = false; // Stop playback
       }
     };
     ws.onclose = () => console.log('WS closed');
