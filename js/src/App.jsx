@@ -94,12 +94,13 @@ function App() {
       // Suggestion: Lower your processor’s chunk size (e.g. 512 or 1024 frames) so you have smaller chunks, more frequent updates. GPT’s server VAD can then respond more promptly.
       const downsampled = samples;
 
-      const int16 = float32ToInt16(downsampled);
+      // Officially, the docs mention 16 kHz or 8 kHz for Whisper. The real-time endpoints may support more, but you might get better luck if you systematically feed 16 kHz PCM16.
+      const downsampled16k = naiveDownsample(downsampled, 3);
+
+      const int16 = float32ToInt16(downsampled16k);
       const base64Data = bufferToBase64(int16);
       
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        const timestamp = Date.now();
-        console.log(`[${timestamp}] Sending audio chunk to server.`);
         wsRef.current.send(
           JSON.stringify({ type: 'input_audio_buffer.append', audio: base64Data })
         );
