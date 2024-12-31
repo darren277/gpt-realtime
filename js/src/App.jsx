@@ -151,7 +151,11 @@ function App() {
       if (!samples) return;
 
       // (Optional) downsample from 48k -> 24k
-      const downsampled = naiveDownsample(samples, 2);
+      //const downsampled = naiveDownsample(samples, 2);
+      //     If your RecorderProcessor.js is capturing a large chunk every time (e.g. 2048 frames or 4096 frames at 48 kHz?), you might be sending too-large lumps of audio. GPT’s server VAD may only detect speech once every big chunk.
+      // Suggestion: Lower your processor’s chunk size (e.g. 512 or 1024 frames) so you have smaller chunks, more frequent updates. GPT’s server VAD can then respond more promptly.
+      const downsampled = samples;
+
       const int16 = float32ToInt16(downsampled);
       const base64Data = bufferToBase64(int16);
       
