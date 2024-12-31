@@ -68,7 +68,7 @@ function App() {
         //console.log("Received audio delta:", data.delta.length, "bytes");
         //await playAudioDelta(data.delta);
         // If item was truncated, skip playing
-        if (truncatedItems.has(data.item_id)) return;
+        if (data.item_id && truncatedItems.has(data.item_id)) return;
 
         // Otherwise play
         playChunk(data.delta);
@@ -91,13 +91,18 @@ function App() {
     if (listening) return;
     setListening(true);
 
-    // 1) AudioContext
-    audioContextRef.current = new AudioContext();
+    // If the AudioContext was closed previously, create a new one
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      console.log("AudioContext re-initialized:", audioContextRef.current);
+    }
 
-    // 2) Add our custom Processor
+    // Resume if suspended (common in Chrome until user gesture)
+    if (audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume();
+    }
+
     await audioContextRef.current.audioWorklet.addModule('/RecorderProcessor.js');
-
-    // 3) Create our node
     recorderNodeRef.current = new AudioWorkletNode(
       audioContextRef.current,
       'recorder-processor'
@@ -136,9 +141,17 @@ function App() {
 
   function stopListening() {
     setListening(false);
+
+    if (recorderNodeRef.current) {
+      recorderNodeRef.current.disconnect();
+      recorderNodeRef.current = null;
+    }
+
     if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
+      audioContextRef.current.close().then(() => {
+        audioContextRef.current = null;
+        console.log("AudioContext closed.");
+      });
     }
   }
   
