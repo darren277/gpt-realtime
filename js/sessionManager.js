@@ -196,12 +196,16 @@ function handleModelMessage(data) {
   }
 
   switch (event.type) {
-    case "input_audio_buffer.speech_started":
-      console.log("User speech started again—interrupt GPT's audio.");
-      handleTruncation();
-      jsonSend(session.modelConn, { type: "response.create" }); // Prompt GPT to respond
-      break;
-    
+      /*
+      GPT (via OpenAI) tries to detect voice activity itself on the server side. In principle, you may not need to manually send input_audio_buffer.speech_started.
+      
+      case "input_audio_buffer.speech_started":
+        console.log("User speech started again—interrupt GPT's audio.");
+        handleTruncation();
+        jsonSend(session.modelConn, { type: "response.create" }); // Prompt GPT to respond
+        break;
+      */
+     
       case "input_audio_buffer.append": {
         // If your session has some concept of "when the audio started," track it here:
         if (session.latestMediaTimestamp === undefined) {
