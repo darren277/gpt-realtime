@@ -2,8 +2,6 @@ import React, { useRef, useState, useEffect } from 'react';
 
 let nextPlaybackTime = 0;
 const truncatedItems = new Set();
-const playbackQueue = [];
-let isPlaying = false;
 
 function App() {
   const [sessionInitialized, setSessionInitialized] = useState(false);
@@ -27,38 +25,6 @@ function App() {
     // Then increment nextPlaybackTime by the chunk's duration
     nextPlaybackTime = startTime + decodedData.duration;
   }
-
-  const playAudioDelta = async (base64Audio) => {
-    console.log("!!!!!!!!!!!!!!!!!!!!!!!!! Playing audio delta:", base64Audio.length, "bytes", typeof base64Audio);
-    try {
-      if (!audioContextRef.current) {
-        throw new Error("AudioContext is not initialized.");
-      }
-
-      if (audioContextRef.current.state === 'suspended') {
-        console.log("Resuming AudioContext...");
-        await audioContextRef.current.resume();
-      }
-
-      const audioContext = audioContextRef.current;
-      const audioBuffer = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
-
-      const decodedData = await audioContext.decodeAudioData(audioBuffer.buffer);
-      //const duration = decodedData.duration;
-
-      //playbackQueue.push({ decodedData, duration });
-
-      //processQueue(audioContextRef);
-      
-      //setAudioChunks((chunks) => [...chunks, audioBuffer]);
-
-      // Instead of pushing to a queue and calling processQueue,
-      // we just call playChunk() directly with the decoded data.
-      playChunk(decodedData);
-    } catch (err) {
-      console.error("Error decoding audio:", err);
-    }
-  };
 
   useEffect(() => {
     if (!audioContextRef.current) {
