@@ -1,5 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 
+let nextPlaybackTime = 0;
+const truncatedItems = new Set();
 const playbackQueue = [];
 let isPlaying = false;
 
