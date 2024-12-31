@@ -73,23 +73,21 @@ function App() {
         await audioContextRef.current.resume();
       }
 
-      // Clear playbackQueue on truncation
-      if (playbackQueue.length > 0 && isPlaying) {
-        //playbackQueue.length = 0; // Clear the queue
-        //isPlaying = false;
-      }
-
       const audioContext = audioContextRef.current;
       const audioBuffer = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
 
       const decodedData = await audioContext.decodeAudioData(audioBuffer.buffer);
-      const duration = decodedData.duration;
+      //const duration = decodedData.duration;
 
-      playbackQueue.push({ decodedData, duration });
+      //playbackQueue.push({ decodedData, duration });
 
-      processQueue(audioContextRef);
+      //processQueue(audioContextRef);
       
       //setAudioChunks((chunks) => [...chunks, audioBuffer]);
+
+      // Instead of pushing to a queue and calling processQueue,
+      // we just call playChunk() directly with the decoded data.
+      playChunk(decodedData);
     } catch (err) {
       console.error("Error decoding audio:", err);
     }
@@ -100,7 +98,7 @@ function App() {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
       console.log("AudioContext initialized:", audioContextRef.current);
     }
-  }, []);  
+  }, []);
 
   useEffect(() => {
     // Create WebSocket
@@ -109,20 +107,27 @@ function App() {
 
     ws.onopen = () => console.log('WS open');
     ws.onmessage = async (e) => {
+      console.log('WS message:', e);
+
       // e.g. handle GPT audio deltas
       const data = JSON.parse(e.data);
-      
-      console.log(`[${Date.now()}] Frontend received event:`, data);
-
       if (data.type === "audio_delta") {
-        console.log("Received audio delta:", data.delta.length, "bytes");
-        await playAudioDelta(data.delta);
-      }
+        //console.log("Received audio delta:", data.delta.length, "bytes");
+        //await playAudioDelta(data.delta);
+        // If item was truncated, skip playing
+        if (truncatedItems.has(data.item_id)) return;
 
-      if (data.type === "conversation.item.truncated") {
-        console.log("Truncation confirmed. Clearing playback queue.");
-        playbackQueue.length = 0; // Clear the queue
-        isPlaying = false; // Stop playback
+        // Otherwise play
+        playChunk(data.delta);
+
+      } else if (data.type === "conversation.item.truncated") {
+        console.log("Item truncated:", data);
+
+        // Mark that item as truncated
+        truncatedItems.add(data.item_id);
+    
+        // Optionally call something like cancelPlaybackForItem(data.item_id)
+        // if you want to fade out or kill a chunk already in progress.
       }
     };
     ws.onclose = () => console.log('WS closed');
