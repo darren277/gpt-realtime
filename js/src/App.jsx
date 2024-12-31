@@ -61,6 +61,21 @@ function App() {
   const recorderNodeRef = useRef(null);
   const wsRef = useRef(null);
 
+  function playChunk(decodedData) {
+    const audioCtx = audioContextRef.current;
+    const source = audioCtx.createBufferSource();
+    source.buffer = decodedData;
+    source.connect(audioCtx.destination);
+
+    // Schedule this chunk to begin at nextPlaybackTime
+    // If nextPlaybackTime is in the past, schedule it as soon as possible
+    const startTime = Math.max(audioCtx.currentTime, nextPlaybackTime);
+    source.start(startTime);
+
+    // Then increment nextPlaybackTime by the chunk's duration
+    nextPlaybackTime = startTime + decodedData.duration;
+  }
+
   const playAudioDelta = async (base64Audio) => {
     console.log("!!!!!!!!!!!!!!!!!!!!!!!!! Playing audio delta:", base64Audio.length, "bytes", typeof base64Audio);
     try {
