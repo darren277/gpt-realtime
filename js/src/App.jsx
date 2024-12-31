@@ -13,19 +13,37 @@ function App() {
   const recorderNodeRef = useRef(null);
   const wsRef = useRef(null);
 
-  function playChunk(decodedData) {
+  /**
+   * playChunk: Decodes base64 audio and schedules it in the AudioContext timeline.
+   */
+  function playChunk(base64Audio) {
     const audioCtx = audioContextRef.current;
-    const source = audioCtx.createBufferSource();
-    source.buffer = decodedData;
-    source.connect(audioCtx.destination);
+    if (!audioCtx) {
+      console.warn("No AudioContext available; skipping playback.");
+      return;
+    }
 
-    // Schedule this chunk to begin at nextPlaybackTime
-    // If nextPlaybackTime is in the past, schedule it as soon as possible
-    const startTime = Math.max(audioCtx.currentTime, nextPlaybackTime);
-    source.start(startTime);
+    // Decode base64 -> ArrayBuffer
+    const audioBuffer = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0)).buffer;
 
-    // Then increment nextPlaybackTime by the chunk's duration
-    nextPlaybackTime = startTime + decodedData.duration;
+    // Asynchronously decode the audio data
+    audioCtx.decodeAudioData(
+      audioBuffer,
+      (decodedData) => {
+        // Schedule chunk behind nextPlaybackTime
+        const startTime = Math.max(audioCtx.currentTime, nextPlaybackTime);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = decodedData;
+        source.connect(audioCtx.destination);
+
+        source.start(startTime);
+        nextPlaybackTime = startTime + decodedData.duration;
+      },
+      (err) => {
+        console.error("Error decoding audio data:", err);
+      }
+    );
   }
 
   useEffect(() => {
