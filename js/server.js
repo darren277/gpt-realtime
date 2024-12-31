@@ -107,15 +107,6 @@ wss.on('connection', (ws) => {
       console.error('Error processing client message:', err);
     }
   });
-
-  // Example: Send test message to clients every 5 seconds
-  setInterval(() => {
-    clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'test', message: 'Hello from server!' }));
-      }
-    });
-  }, 5000); // Optional for debugging
 });
 
 app.post('/send', async (req, res) => {
