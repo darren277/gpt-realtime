@@ -16,6 +16,32 @@ https://platform.openai.com/docs/guides/realtime-websocket
 
 https://platform.openai.com/docs/api-reference/realtime
 
+### Images
+
+#### All Events
+
+![RealtimeAPI](./img/RealtimeAPI.png)
+
+#### Server Events: Session and Error and Conversation Created
+
+![RealtimeAPI Server Events](./img/RealtimeAPI_ServerEvents.png)
+
+#### Server Events: Conversation Item
+
+![RealtimeAPI Server Events - Conversation Item](./img/RealtimeAPI_ServerEvents_ConversationItem.png)
+
+#### Server Events: Input Audio Buffer
+
+![RealtimeAPI Server Events - Input Audio](./img/RealtimeAPI_ServerEvents_InputAudio.png)
+
+#### Server Events: Response
+
+![RealtimeAPI Server Events - Response](./img/RealtimeAPI_ServerEvents_Response.png)
+
+#### Client Events
+
+![RealtimeAPI Client Events](./img/RealtimeAPI_ClientEvents.png)
+
 ## Python version
 
 An implementation of the GPT Real Time API using WebSockets. It is built in Flask and has a very simple single page for the front end that uses vanilla HTML and JavaScript.
