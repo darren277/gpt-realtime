@@ -11,7 +11,9 @@ The plan is to include both some Python and JavaScript code showcasing the core 
 ### Some resources:
 
 https://platform.openai.com/docs/guides/realtime-model-capabilities
+
 https://platform.openai.com/docs/guides/realtime-websocket
+
 https://platform.openai.com/docs/api-reference/realtime
 
 ## Python version
