@@ -27,6 +27,7 @@ class RecorderProcessor extends AudioWorkletProcessor {
   
       // Let’s send data every ~0.25 seconds, for example:
       const chunkDurationSec = 0.25;
+      //const chunkDurationSec = 0.02;
       const samplesPerChunk = Math.floor(chunkDurationSec * sampleRate); // e.g. sampleRate=48000 => 12000 samples
   
       // Flatten out all samples we’ve collected so far

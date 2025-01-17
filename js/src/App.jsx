@@ -4,6 +4,7 @@ import { bufferToBase64, float32ToInt16, naiveDownsample } from './utils';
 
 let nextPlaybackTime = 0;
 const truncatedItems = new Set();
+const itemPlaybackMap = new Map();
 
 function App() {
   const [sessionInitialized, setSessionInitialized] = useState(false);
@@ -16,7 +17,7 @@ function App() {
   /**
    * playChunk: Decodes base64 audio and schedules it in the AudioContext timeline.
    */
-  function playChunk(base64Audio) {
+  function playChunk(base64Audio, itemId) {
     const audioCtx = audioContextRef.current;
     if (!audioCtx) {
       console.warn("No AudioContext available; skipping playback.");
@@ -38,6 +39,12 @@ function App() {
         source.connect(audioCtx.destination);
 
         source.start(startTime);
+
+        // Store this source node in a Map so we can stop it later if truncated
+        let list = itemPlaybackMap.get(itemId) || [];
+        list.push(source);
+        itemPlaybackMap.set(itemId, list);
+        
         nextPlaybackTime = startTime + decodedData.duration;
       },
       (err) => {
@@ -71,7 +78,7 @@ function App() {
         if (data.item_id && truncatedItems.has(data.item_id)) return;
 
         // Otherwise play
-        playChunk(data.delta);
+        playChunk(data.delta, data.item_id);
 
       } else if (data.type === "conversation.item.truncated") {
         console.log("Item truncated:", data);
@@ -81,6 +88,22 @@ function App() {
     
         // Optionally call something like cancelPlaybackForItem(data.item_id)
         // if you want to fade out or kill a chunk already in progress.
+        // Stop all playing sources for that item
+        const sources = itemPlaybackMap.get(item_id) || [];
+        for (const src of sources) {
+          try {
+            src.stop(); // Immediately halt playback
+          } catch (err) {
+            console.warn("Error stopping source for item", item_id, err);
+          }
+        }
+        // Remove them from the map
+        itemPlaybackMap.delete(item_id);
+
+        // Reset the queue so new items start immediately
+        if (audioContextRef.current) {
+          nextPlaybackTime = audioContextRef.current.currentTime;
+        }
       }
     };
     ws.onclose = () => console.log('WS closed');

@@ -80,6 +80,7 @@ function handleModelConnection() {
         session: {
             modalities: ["text", "audio"],
             turn_detection: { type: "server_vad", create_response: true },
+            //turn_detection: { type: "server_vad", create_response: false },
             voice: "ash",
             input_audio_transcription: { model: "whisper-1" },
             //input_audio_format: "g711_ulaw",
@@ -108,7 +109,14 @@ function handleModelConnection() {
         if (loggableEvent.delta) {
           loggableEvent.delta = loggableEvent.delta.length;
         }
-        console.log("Received event from GPT:", JSON.stringify(loggableEvent));
+
+        if (event.type === "conversation.item.input_audio_transcription.completed") {
+          const humanReadableTimestamp = new Date().toISOString();
+          console.log(humanReadableTimestamp + " [TRANSCRIPT COMPLETED] Received event from GPT:", JSON.stringify(loggableEvent));
+        } else if (event.type === "conversation.item.truncate") {
+          const humanReadableTimestamp = new Date().toISOString();
+          console.log(humanReadableTimestamp + " [TRUNCATE] Received event from GPT:", JSON.stringify(loggableEvent));
+        }
         handleModelMessage(data);
       });
   }
@@ -188,8 +196,6 @@ function handleModelMessage(data) {
     loggableEvent.delta = loggableEvent.delta.length;
   }
 
-  console.log("?????????????? Received event from model:", JSON.stringify(loggableEvent));
-
   // Example function call scenario:
   if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
     handleFunctionCall(event.item);
@@ -201,7 +207,13 @@ function handleModelMessage(data) {
       case "input_audio_buffer.speech_started":
         console.log("User speech started again—interrupt GPT's audio.");
         handleTruncation();
-        jsonSend(session.modelConn, { type: "response.create" }); // Prompt GPT to respond
+        /////jsonSend(session.modelConn, { type: "response.create" }); // Prompt GPT to respond
+        break;
+      
+      case "input_audio_buffer.speech_ended":
+        console.log("User speech ended.");
+        //handleTruncation();
+        jsonSend(session.modelConn, { type: "response.create" }, 'handleModelMessage_input_audio_buffer.speech_ended');
         break;
      
       case "input_audio_buffer.append": {
@@ -240,7 +252,8 @@ function handleModelMessage(data) {
         // Example: handle content_part.done event
         // This event is sent for each part of a multipart response (e.g. a long text response or a response with multiple audio segments)
         // You can use this event to stream the response to the client or to perform other actions based on the response parts
-        console.log("Received response content part:", JSON.stringify(event));
+        const humanReadableTimestamp = new Date().toISOString();
+        console.log(humanReadableTimestamp + " Received response content part:", JSON.stringify(event));
 
         // Example: send audio deltas to the client
         if (event.audio) {
@@ -264,7 +277,7 @@ function handleModelMessage(data) {
                   output: JSON.stringify(output),
                 },
               });
-              jsonSend(session.modelConn, { type: "response.create" }, 'handleModelMessage_response.output_item.done');
+              /////jsonSend(session.modelConn, { type: "response.create" }, 'handleModelMessage_response.output_item.done');
             }
           })
           .catch((err) => {
@@ -361,7 +374,8 @@ function jsonSend(ws, obj, source) {
   if (loggableObj.delta) {
     loggableObj.delta = loggableObj.delta.length;
   }
-  console.log("Sending to ws:", isOpen(ws), JSON.stringify(loggableObj));
+  const humanReadableTimestamp = new Date().toISOString();
+  console.log(humanReadableTimestamp + " Sending to ws:", isOpen(ws), JSON.stringify(loggableObj));
   ws.send(JSON.stringify(obj));
 }
 
@@ -375,7 +389,7 @@ function flushQueue(ws) {
 }
 
 function isOpen(ws) {
-  console.log("WebSocket state:", ws ? ws.readyState : "No WebSocket");
+  //console.log("WebSocket state:", ws ? ws.readyState : "No WebSocket");
   return !!ws && ws.readyState === WebSocket.OPEN;
 }
 
