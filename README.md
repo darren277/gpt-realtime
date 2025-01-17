@@ -29,3 +29,38 @@ There is now a Node/Express/React version of the same application. It has the sa
 ### Tool Calls
 
 ...
+
+### UML
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client
+    participant Server (OpenAI Realtime)
+
+    Note over Client,Server: 1. Server VAD + create_response=false<br/>Client sends small audio chunks, server detects speech.
+
+    Client->>Server: input_audio_buffer.append (PCM16 data)
+    Server-->>Client: input_audio_buffer.speech_started (VAD detects user speech)
+
+    Note over Client: (Optionally barge in here)
+    Client->>Server: conversation.item.truncate (on barge-in)
+    Server-->>Client: conversation.item.truncated (audio truncated)
+
+    Note over Client,Server: 2. End of speech<br/>Server automatically commits audio
+    Server-->>Client: input_audio_buffer.speech_stopped
+    Server-->>Client: input_audio_buffer.committed
+    Server-->>Client: conversation.item.created (role=user)
+    Server-->>Client: conversation.item.<br/>input_audio_transcription.completed
+
+    Note over Client: 3. Manual turn creation<br/>User or code decides to get GPT response
+    Client->>Server: response.create (instructions / user prompt)
+    Server-->>Client: response.created
+    loop Streaming
+        Server-->>Client: response.audio.delta (assistant audio chunks)
+        Server-->>Client: response.content_part.done (e.g. partial)
+    end
+    Server-->>Client: response.done (assistant is finished speaking)
+
+    Note over Client,Server: 4. Next user speech or new turn<br/>Repeat from step 1.
+```
