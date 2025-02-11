@@ -1,3 +1,5 @@
+import WebSocketClient from './ws-client.js';
+
 const recordButton = document.getElementById('record-button');
 const interruptButton = document.getElementById('interrupt-button');
 const audioElement = document.getElementById('assistant-audio');
@@ -35,12 +37,35 @@ startWsButton.addEventListener('click', () => {
         .then(res => res.text())
         .then(text => {
             console.log('WebSocket started:', text);
-            // WebSocket is now connected, we can enable recording and other controls
-            startWsButton.disabled = true;
-            setupAudioRecording();
-            controlsDiv.style.display = 'block';
-            recordButton.disabled = false;
-            interruptButton.disabled = false;
+
+            const wsClient = new WebSocketClient(ws_address);
+
+            // make wsClient available everywhere
+            window.wsClient = wsClient;
+
+            wsClient.onOpen = (event) => {
+                // WebSocket is now connected, we can enable recording and other controls
+                startWsButton.disabled = true;
+                setupAudioRecording();
+                controlsDiv.style.display = 'block';
+                recordButton.disabled = false;
+                interruptButton.disabled = false;
+            };
+
+            wsClient.onMessage = (event) => {
+                console.log('Custom onMessage logic:', event.data);
+                // Handle incoming events/messages from the server here
+                handleEvent(event);
+            };
+
+            wsClient.onError = (error) => {
+                console.error('Custom onError logic:', error);
+            };
+
+            wsClient.onClose = (event) => {
+                console.log('Custom onClose logic:', event);
+            };
+
         })
         .catch(err => console.error('Failed to start WebSocket:', err));
 });
