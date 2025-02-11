@@ -1,4 +1,5 @@
 import WebSocketClient from './ws-client.js';
+import handleEvent from './event-handler.js';
 
 var ws_address = document.getElementsByName('ws_address')[0].content;
 
