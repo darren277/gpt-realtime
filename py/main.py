@@ -13,6 +13,8 @@ import requests
 import subprocess
 import tempfile
 
+from events import RealtimeEventHandler
+
 SESSION_ENDPOINT = "https://api.openai.com/v1/realtime/sessions"
 CLIENT_SECRET = None
 SESSION_ID = None
@@ -23,6 +25,8 @@ app = Flask(__name__)
 
 app.config['SECRET_KEY'] = 'your-secret-key'
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+realtime_event_handler = RealtimeEventHandler()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -41,7 +45,13 @@ def on_open(ws):
 
 def on_message(ws, message):
     data = json.loads(message)
-    print("Received event from OpenAI:", json.dumps(data, indent=2))
+    print("----- Received event from OpenAI:", json.dumps(data, indent=2)[:100])
+
+    try:
+        realtime_event_handler.handle_event(data)
+    except Exception as e:
+        print("Error handling event:", e)
+
     # Forward specific events to the connected front-end clients
     socketio.emit('openai_event', data)
 

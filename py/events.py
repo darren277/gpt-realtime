@@ -107,3 +107,27 @@ def truncate(audio_end_ms: int):
         #"audio_end_ms": 1500
         "audio_end_ms": audio_end_ms
     }
+
+
+class RealtimeEventHandler:
+    def __init__(self):
+        self.event_history = []
+
+    def handle_event(self, event):
+        event_type = event['type']
+        print("HANDLE EVENT", event_type)
+        item = event['item']
+        print(item['type'], item['status'], item['role'])
+        first_item = item['content'][0]
+        print(first_item['type'])
+
+        import time
+
+        if event.type == "conversation.item.create":
+            ...
+
+        ts = int(time.time())
+
+        self.event_history.append(f"[Realtime Event] {ts}: {event_type}")
+
+
