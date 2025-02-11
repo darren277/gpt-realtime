@@ -39,14 +39,15 @@ startWsButton.addEventListener('click', () => {
     fetch(START_WS_URL, { method: 'GET' })
         .then(res => res.text())
         .then(text => {
-            console.log('WebSocket started:', text);
+            console.log('Backend (Realtime API) WebSocket started:', text);
 
             const wsClient = new WebSocketClient(ws_address);
 
             // make wsClient available everywhere
             window.wsClient = wsClient;
 
-            wsClient.onOpen = (event) => {
+            window.wsClient.onOpen = (event) => {
+                console.log('WebSocket connection established from front end to back end.');
                 // WebSocket is now connected, we can enable recording and other controls
                 startWsButton.disabled = true;
                 setupAudioRecording();
@@ -55,20 +56,21 @@ startWsButton.addEventListener('click', () => {
                 interruptButton.disabled = false;
             };
 
-            wsClient.onMessage = (event) => {
+            window.wsClient.onMessage = (event) => {
                 console.log('Custom onMessage logic:', event.data);
                 // Handle incoming events/messages from the server here
                 handleEvent(event);
             };
 
-            wsClient.onError = (error) => {
+            window.wsClient.onError = (error) => {
                 console.error('Custom onError logic:', error);
             };
 
-            wsClient.onClose = (event) => {
+            window.wsClient.onClose = (event) => {
                 console.log('Custom onClose logic:', event);
             };
 
+            window.wsClient.connect();
         })
         .catch(err => console.error('Failed to start WebSocket:', err));
 });
