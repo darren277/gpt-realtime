@@ -3,6 +3,7 @@ import base64
 import uuid
 
 from flask import Flask, request, render_template, jsonify
+from flask_socketio import SocketIO, emit
 import os
 import json
 import threading
@@ -19,6 +20,9 @@ SESSION_ID = None
 load_dotenv()
 
 app = Flask(__name__)
+
+app.config['SECRET_KEY'] = 'your-secret-key'
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -37,7 +41,9 @@ def on_open(ws):
 
 def on_message(ws, message):
     data = json.loads(message)
-    print("Received event:", json.dumps(data, indent=2))
+    print("Received event from OpenAI:", json.dumps(data, indent=2))
+    # Forward specific events to the connected front-end clients
+    socketio.emit('openai_event', data)
 
 def run_websocket():
     global ws_app
@@ -205,5 +211,33 @@ def conversation_item_create():
 def home():
     return render_template('index.html')
 
+# ----------------------------
+# Front-End WebSocket Handlers
+# ----------------------------
+@socketio.on('connect')
+def handle_connect():
+    print("Front-end client connected")
+    emit("connect_response", {"message": "Connected to backend WebSocket!"})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print("Front-end client disconnected")
+
+@socketio.on('client_event')
+def handle_client_event(data):
+    print("Received event from front-end:", data)
+    # Process the data or even route it to OpenAI as needed.
+    # For example, to send a message to OpenAI:
+    if ws_app and ws_app.sock and ws_app.sock.connected:
+        ws_app.send(json.dumps({
+            "type": "response.create",
+            "response": {
+                "modalities": ["text"],
+                "instructions": data.get('message', '')
+            }
+        }))
+    emit("server_response", {"message": "Event processed"})
+
+
 if __name__ == '__main__':
-    app.run(debug=True, port=5659)
+    socketio.run(app, debug=True, port=5659, allow_unsafe_werkzeug=True)

@@ -6,7 +6,9 @@ export default class WebSocketClient {
     }
 
     connect() {
-        this.socket = new WebSocket(this.url);
+        //this.socket = new WebSocket(this.url);
+        // Using socket.io.js instead:
+        this.socket = new io(this.url);
 
         // Bind event handlers
         this.socket.onopen = (event) => this.handleOpen(event);
