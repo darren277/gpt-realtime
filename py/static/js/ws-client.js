@@ -5,15 +5,15 @@ export default class WebSocketClient {
     }
 
     connect() {
-        //this.socket = new WebSocket(this.url);
-        // Using socket.io.js instead:
         this.socket = new io(this.url);
 
-        // Bind event handlers
-        this.socket.onopen = (event) => this.handleOpen(event);
-        this.socket.onmessage = (event) => this.handleMessage(event);
-        this.socket.onerror = (error) => this.handleError(error);
-        this.socket.onclose = (event) => this.handleClose(event);
+        // Bind Socket.IO event handlers
+        this.socket.on('connect', (event) => this.handleOpen(event));
+        // For receiving messages, Socket.IO typically uses custom events.
+        // You might want to listen for a custom event name such as 'message' if your server sends it.
+        this.socket.on('message', (data) => this.handleMessage({ data }));
+        this.socket.on('error', (error) => this.handleError(error));
+        this.socket.on('disconnect', (event) => this.handleClose(event));
     }
 
     // Override these methods as needed in your application
