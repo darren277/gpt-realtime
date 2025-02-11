@@ -1,5 +1,7 @@
 import WebSocketClient from './ws-client.js';
 
+var ws_address = document.getElementsByName('ws_address')[0].content;
+
 const recordButton = document.getElementById('record-button');
 const interruptButton = document.getElementById('interrupt-button');
 const audioElement = document.getElementById('assistant-audio');
