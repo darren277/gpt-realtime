@@ -85,6 +85,29 @@ startWsButton.addEventListener('click', () => {
         .catch(err => console.error('Failed to start WebSocket:', err));
 });
 
+function setupAudioRecording() {
+  audioManager
+    .connectAudio()
+    .then(() => {
+      console.log('Audio streaming to the server started...');
+    })
+    .catch(err => {
+      console.error('Failed to start audio:', err);
+    });
+}
+
+function stopAudioRecording() {
+  audioManager
+    .disconnect()
+    .then(() => {
+      console.log('Audio recording stopped.');
+      // If you want to do something after stopping (such as telling the server to finalize a response, or fetching a final transcript), do it here.
+    })
+    .catch(err => {
+      console.error('Failed to stop audio:', err);
+    });
+}
+
 // Record button handlers
 recordButton.addEventListener('mousedown', () => {
     if (mediaRecorder && mediaRecorder.state === 'inactive') {
