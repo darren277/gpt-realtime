@@ -35,14 +35,33 @@ class AudioManager {
     this.client = {
       sessionCreated: true,
       isConnected: true,
-      appendInputAudio: (monoData: Float32Array) => { /* ... */ },
-      sendUserMessageContent: async (content: any) => { /* ... */ },
-      on: (event: string, handler: Function) => { /* ... */ },
-      conversation: {
-        getItems: () => [/* ... */],
+      appendInputAudio: (arrayBuffer: Float32Array) => {
+        if (arrayBuffer.byteLength > 0) {
+            this.realtime.send("input_audio_buffer.append", {audio: arrayBufferToBase64(arrayBuffer)});
+            this.inputAudioBuffer = new Int16Array(0);
+        }
       },
-      reset: () => { /* cleanup */ },
-      cancelResponse: async (trackId: string, offset: number) => { /* ... */ },
+      sendUserMessageContent: async (content: any) => {
+        if (content.length) {
+          this.realtime.send("conversation.item.create", {item: {type: "message", role: "user", content}});
+        }
+        this.createResponse();
+      },
+      on: (event: string, handler: Function) => {
+         /* TODO */
+      },
+      conversation: {
+        getItems: () => {
+            /* TODO: Get conversation items... */
+            return []
+        },
+      },
+      reset: () => {
+        /* TODO: cleanup */
+      },
+      cancelResponse: async (trackId: string, offset: number) => {
+         /* TODO: Cancel Response (truncate?) */
+      },
     } as unknown as RealtimeClient;
   }
 
