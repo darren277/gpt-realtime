@@ -22,6 +22,16 @@ const CREATE_ITEM_URL = '/conversation_item_create';
 const CREATE_RESPONSE_URL = '/send';
 const TRUNCATE_URL = '/truncate_audio';
 
+
+const audioManager = new AudioManager({
+  initialMute: false,
+  enabled: true,
+});
+
+// Initialize everything (like useEffect)
+audioManager.init();
+
+
 // Step 1: Initialize Session
 initSessionButton.addEventListener('click', () => {
     fetch(INIT_SESSION_URL, {method: 'POST'})
@@ -76,40 +86,26 @@ startWsButton.addEventListener('click', () => {
 });
 
 function setupAudioRecording() {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-            mediaRecorder = new MediaRecorder(stream);
+  audioManager
+    .connectAudio()
+    .then(() => {
+      console.log('Audio streaming to the server started...');
+    })
+    .catch(err => {
+      console.error('Failed to start audio:', err);
+    });
+}
 
-            mediaRecorder.ondataavailable = e => {if (e.data.size > 0) {recordedChunks.push(e.data);}};
-
-            mediaRecorder.onstop = () => {
-                // Once stopped, we have the full recorded audio
-                const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-                recordedChunks = [];
-
-                const formData = new FormData();
-                formData.append('audio', blob);
-
-                fetch(CREATE_ITEM_URL, {method: 'POST', body: formData})
-                    .then(res => res.json())
-                    .then(data => {
-                        console.log('conversation.item.create response:', data);
-                        // After sending user audio as conversation item, request assistant response:
-                        return fetch(CREATE_RESPONSE_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ message: "Please respond to the user's audio." })
-                        });
-                    })
-                    .then(res => res.text())
-                    .then(responseText => {
-                        console.log('response.create triggered:', responseText);
-                        // The assistant should now respond via the WS connection.
-                    })
-                    .catch(console.error);
-            };
-        })
-        .catch(err => console.error('Failed to get user media:', err));
+function stopAudioRecording() {
+  audioManager
+    .disconnect()
+    .then(() => {
+      console.log('Audio recording stopped.');
+      // If you want to do something after stopping (such as telling the server to finalize a response, or fetching a final transcript), do it here.
+    })
+    .catch(err => {
+      console.error('Failed to stop audio:', err);
+    });
 }
 
 // Record button handlers
